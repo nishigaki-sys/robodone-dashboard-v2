@@ -163,7 +163,7 @@ function RobotSchoolDashboard() {
     const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
     const [dailyReportInput, setDailyReportInput] = useState({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
     const [isSavingReport, setIsSavingReport] = useState(false);
-    const [isInputModalOpen, setIsInputModalOpen] = useState(false); // モーダル開閉
+    const [isInputModalOpen, setIsInputModalOpen] = useState(false);
 
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState(null);
@@ -431,7 +431,6 @@ function RobotSchoolDashboard() {
                         transfers: dTransfer,
                         graduates: dGraduate,
                         
-                        // 日報データ
                         flyers: report.flyers || 0,
                         touchAndTry: report.touchTry || 0,
                         trialLessons: report.trialLessons || 0,
@@ -707,6 +706,14 @@ function RobotSchoolDashboard() {
         const firstDay = new Date(targetYear, jsMonth, 1).getDay(); // 0:Sun
         const daysInMonth = new Date(targetYear, jsMonth + 1, 0).getDate();
         
+        // 天気アイコンのマッピング
+        const weatherMap = {
+            sunny: { i: Sun, c: 'text-orange-500' },
+            cloudy: { i: Cloud, c: 'text-gray-500' },
+            rainy: { i: CloudRain, c: 'text-blue-500' },
+            snowy: { i: Snowflake, c: 'text-cyan-500' }
+        };
+
         // パディング (空セル)
         const blanks = Array.from({ length: firstDay }, (_, i) => <div key={`blank-${i}`} className="h-24 bg-slate-50 border border-slate-100"></div>);
         
@@ -716,21 +723,32 @@ function RobotSchoolDashboard() {
             const dateStr = `${targetYear}-${('0'+(jsMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
             const report = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dateStr);
             const isToday = dateStr === formatDateStr(new Date());
+            
+            // 天気アイコン取得
+            const WeatherInfo = report && report.weather ? weatherMap[report.weather] : null;
+            const WeatherIcon = WeatherInfo ? WeatherInfo.i : null;
 
             return (
                 <div 
                     key={day} 
                     onClick={() => handleDateClick(day)}
-                    className={`h-24 border border-slate-200 p-2 cursor-pointer hover:bg-blue-50 transition-colors relative flex flex-col ${isToday ? 'bg-blue-50/50' : 'bg-white'}`}
+                    className={`h-24 border border-slate-200 p-1.5 cursor-pointer hover:bg-blue-50 transition-colors relative flex flex-col ${isToday ? 'bg-blue-50/50' : 'bg-white'}`}
                 >
-                    <span className={`text-sm font-bold mb-1 ${isToday ? 'text-blue-600' : 'text-slate-700'}`}>
-                        {day}
-                        {isToday && <span className="ml-1 text-[10px] bg-blue-100 text-blue-600 px-1 rounded">Today</span>}
-                    </span>
+                    <div className="flex justify-between items-start mb-1">
+                        <span className={`text-sm font-bold ${isToday ? 'text-blue-600' : 'text-slate-700'}`}>
+                            {day}
+                        </span>
+                        {/* 天気アイコン表示 */}
+                        {WeatherIcon && <WeatherIcon className={`w-4 h-4 ${WeatherInfo.c}`} />}
+                    </div>
+                    
+                    {isToday && <span className="text-[10px] bg-blue-100 text-blue-600 px-1 rounded mb-1 w-fit">Today</span>}
+                    
                     {report ? (
-                        <div className="flex-1 flex flex-col justify-end gap-1">
-                            <div className="text-[10px] text-slate-500 bg-slate-100 px-1 rounded flex justify-between"><span>チラシ</span><span className="font-bold">{report.flyers}</span></div>
-                            <div className="text-[10px] text-slate-500 bg-slate-100 px-1 rounded flex justify-between"><span>体験</span><span className="font-bold">{report.trialLessons}</span></div>
+                        <div className="flex-1 flex flex-col justify-end gap-0.5 overflow-hidden">
+                            <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>門配</span><span className="font-bold text-slate-700">{report.flyers}</span></div>
+                            <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>T&T</span><span className="font-bold text-slate-700">{report.touchTry}</span></div>
+                            <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>体験</span><span className="font-bold text-slate-700">{report.trialLessons}</span></div>
                         </div>
                     ) : (
                         <div className="flex-1 flex items-center justify-center text-slate-300">
