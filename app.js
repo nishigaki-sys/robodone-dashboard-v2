@@ -599,9 +599,7 @@ function RobotSchoolDashboard() {
                         {activeTab === 'students' && (
                             <div className="space-y-6 animate-in fade-in duration-500">
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                    {/* ★復会を除外（在庫変動なし） */}
                                     <StatCard title="期間内 増加数" value={`${totals.newEnrollments + totals.transferIns}名`} subValue="入会+転入" trend={0} icon={Users} color="bg-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'復会(内数)', value:totals.returns}, {label:'転入', value:totals.transferIns}]} />
-                                    {/* ★休会を除外（在庫変動なし） */}
                                     <StatCard title="期間内 減少数" value={`${totals.withdrawals + totals.graduates + totals.transfers}名`} subValue="退会+卒業+転校" trend={0} icon={Users} color="bg-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'卒業', value:totals.graduates}, {label:'転校', value:totals.transfers}, {label:'休会(内数)', value:totals.recesses}]} />
                                     <StatCard title="期間内 純増数" value={`${(totals.newEnrollments+totals.transferIns)-(totals.withdrawals+totals.graduates+totals.transfers)}名`} subValue="純増減" trend={0} icon={TrendingUp} color="bg-blue-500" />
                                     <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue="累計生徒在籍数" trend={0} icon={School} color="bg-indigo-500" />
@@ -612,8 +610,8 @@ function RobotSchoolDashboard() {
                                         <BarChart data={displayData} stackOffset="sign">
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                             <XAxis dataKey="name" />
-                                            {/* ★修正箇所: paddingを追加して余白を確保 */}
-                                            <YAxis padding={{ top: 20, bottom: 20 }} />
+                                            {/* ★修正: paddingを追加しつつ、domain='auto'で範囲自動調整を強制 */}
+                                            <YAxis padding={{ top: 20, bottom: 20 }} domain={['auto', 'auto']} />
                                             <Tooltip />
                                             <Legend />
                                             <ReferenceLine y={0} stroke="#000" />
