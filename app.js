@@ -637,7 +637,6 @@ function RobotSchoolDashboard() {
         } catch (e) { alert("保存失敗: " + e.message); } finally { setIsSavingPlan(false); }
     };
 
-    // カレンダーの日付クリック時の処理
     const handleDateClick = (day) => {
         const monthIdx = MONTHS_LIST.indexOf(selectedMonth);
         let targetYear = selectedYear;
@@ -651,7 +650,6 @@ function RobotSchoolDashboard() {
         const dateStr = formatDateStr(clickedDate);
         setReportDate(dateStr);
 
-        // 既存データの検索
         const existingReport = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dateStr);
         if (existingReport) {
             setDailyReportInput({
@@ -667,7 +665,6 @@ function RobotSchoolDashboard() {
         setIsInputModalOpen(true);
     };
 
-    // モーダル内での保存
     const handleSaveDailyReport = async () => {
         if (selectedCampusId === 'All') return;
         setIsSavingReport(true);
@@ -680,20 +677,22 @@ function RobotSchoolDashboard() {
             });
             alert("日報を保存しました。");
             await fetchFromFirebaseAndCache();
-            setIsInputModalOpen(false); // モーダルを閉じる
+            setIsInputModalOpen(false);
         } catch (e) { alert("保存失敗: " + e.message); } finally { setIsSavingReport(false); }
     };
 
-    const handleMenuClick = (tab, campusId = 'All') => {
+    // ★修正: タブ切り替え時に校舎IDをリセットせず、指定がない場合は維持する
+    const handleMenuClick = (tab, campusId = null) => {
         setActiveTab(tab);
-        setSelectedCampusId(campusId);
+        if (campusId) {
+            setSelectedCampusId(campusId);
+        }
     };
 
     const toggleCampusMenu = (campusId) => {
         setExpandedCampusId(expandedCampusId === campusId ? null : campusId);
     };
 
-    // カレンダーレンダリング関数
     const renderCalendar = () => {
         const monthIdx = MONTHS_LIST.indexOf(selectedMonth);
         let targetYear = selectedYear;
@@ -706,7 +705,6 @@ function RobotSchoolDashboard() {
         const firstDay = new Date(targetYear, jsMonth, 1).getDay(); // 0:Sun
         const daysInMonth = new Date(targetYear, jsMonth + 1, 0).getDate();
         
-        // 天気アイコンのマッピング
         const weatherMap = {
             sunny: { i: Sun, c: 'text-orange-500' },
             cloudy: { i: Cloud, c: 'text-gray-500' },
@@ -714,17 +712,14 @@ function RobotSchoolDashboard() {
             snowy: { i: Snowflake, c: 'text-cyan-500' }
         };
 
-        // パディング (空セル)
         const blanks = Array.from({ length: firstDay }, (_, i) => <div key={`blank-${i}`} className="h-24 bg-slate-50 border border-slate-100"></div>);
         
-        // 日付セル
         const days = Array.from({ length: daysInMonth }, (_, i) => {
             const day = i + 1;
             const dateStr = `${targetYear}-${('0'+(jsMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
             const report = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dateStr);
             const isToday = dateStr === formatDateStr(new Date());
             
-            // 天気アイコン取得
             const WeatherInfo = report && report.weather ? weatherMap[report.weather] : null;
             const WeatherIcon = WeatherInfo ? WeatherInfo.i : null;
 
@@ -738,7 +733,6 @@ function RobotSchoolDashboard() {
                         <span className={`text-sm font-bold ${isToday ? 'text-blue-600' : 'text-slate-700'}`}>
                             {day}
                         </span>
-                        {/* 天気アイコン表示 */}
                         {WeatherIcon && <WeatherIcon className={`w-4 h-4 ${WeatherInfo.c}`} />}
                     </div>
                     
@@ -876,6 +870,11 @@ function RobotSchoolDashboard() {
                                 )}
                             </>
                         )}
+                        {/* ★復元された校舎切り替えプルダウン★ */}
+                        <div className="flex items-center bg-slate-100 rounded-lg px-3 py-1 border border-slate-200">
+                            <MapPin className="w-3 h-3 text-slate-500 mr-2" />
+                            <select value={selectedCampusId} onChange={(e) => setSelectedCampusId(e.target.value)} className="bg-transparent border-none text-sm font-medium text-slate-700 focus:ring-0 cursor-pointer py-1"><option value="All">全校舎 (合計)</option><option disabled>──────────</option>{campusList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+                        </div>
                         <button onClick={fetchFromFirebaseAndCache} disabled={isSyncing} className={`p-2 rounded-lg border border-slate-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-slate-50 text-slate-600'}`} title="データを最新の状態に更新"><RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /></button>
                     </div>
                 </header>
@@ -1057,8 +1056,8 @@ function RobotSchoolDashboard() {
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">チラシ配布 (枚)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
-                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">タッチ＆トライ (件)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">門配 (枚)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">T&T (件)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
                                     <div className="col-span-2"><label className="block text-xs font-bold text-slate-500 mb-1">体験会実施 (回)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.trialLessons} onChange={e=>setDailyReportInput({...dailyReportInput,trialLessons:Number(e.target.value)})}/></div>
                                 </div>
                                 <button onClick={handleSaveDailyReport} disabled={isSavingReport} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition-all flex items-center justify-center disabled:opacity-50">
