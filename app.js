@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine } from "recharts";
-import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw, Sun, Cloud, CloudRain, Snowflake, PenTool, ChevronDown, ChevronRight, Building } from "lucide-react";
+import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw, Sun, Cloud, CloudRain, Snowflake, PenTool, ChevronDown, ChevronRight, Building, X } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
 
@@ -145,11 +145,8 @@ function RobotSchoolDashboard() {
     const currentFiscalYear = today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
     const currentMonthStr = `${today.getMonth() + 1}月`;
 
-    // Navigation State
-    const [activeTab, setActiveTab] = useState('summary'); // summary, students, marketing, campus_daily, campus_weekly, campus_yearly, settings
+    const [activeTab, setActiveTab] = useState('summary');
     const [selectedCampusId, setSelectedCampusId] = useState('All');
-    
-    // Sidebar Expansion State
     const [isCampusMenuOpen, setIsCampusMenuOpen] = useState(true);
     const [expandedCampusId, setExpandedCampusId] = useState(null);
 
@@ -166,6 +163,7 @@ function RobotSchoolDashboard() {
     const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
     const [dailyReportInput, setDailyReportInput] = useState({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
     const [isSavingReport, setIsSavingReport] = useState(false);
+    const [isInputModalOpen, setIsInputModalOpen] = useState(false); // モーダル開閉
 
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState(null);
@@ -278,22 +276,6 @@ function RobotSchoolDashboard() {
         };
         fetchPlan();
     }, [selectedCampusId, selectedYear]);
-
-    // 日報入力フォームの初期値セット
-    useEffect(() => {
-        if (selectedCampusId === 'All') return;
-        const targetReport = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === reportDate);
-        if (targetReport) {
-            setDailyReportInput({
-                weather: targetReport.weather || 'sunny',
-                touchTry: targetReport.touchTry || 0,
-                flyers: targetReport.flyers || 0,
-                trialLessons: targetReport.trialLessons || 0
-            });
-        } else {
-            setDailyReportInput({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
-        }
-    }, [selectedCampusId, reportDate, realDailyReports]);
 
     // 集計ロジック実行
     useEffect(() => {
@@ -449,6 +431,7 @@ function RobotSchoolDashboard() {
                         transfers: dTransfer,
                         graduates: dGraduate,
                         
+                        // 日報データ
                         flyers: report.flyers || 0,
                         touchAndTry: report.touchTry || 0,
                         trialLessons: report.trialLessons || 0,
@@ -655,8 +638,39 @@ function RobotSchoolDashboard() {
         } catch (e) { alert("保存失敗: " + e.message); } finally { setIsSavingPlan(false); }
     };
 
+    // カレンダーの日付クリック時の処理
+    const handleDateClick = (day) => {
+        const monthIdx = MONTHS_LIST.indexOf(selectedMonth);
+        let targetYear = selectedYear;
+        let jsMonth = monthIdx + 3;
+        if (jsMonth > 11) {
+            jsMonth -= 12;
+            targetYear += 1;
+        }
+        
+        const clickedDate = new Date(targetYear, jsMonth, day);
+        const dateStr = formatDateStr(clickedDate);
+        setReportDate(dateStr);
+
+        // 既存データの検索
+        const existingReport = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dateStr);
+        if (existingReport) {
+            setDailyReportInput({
+                weather: existingReport.weather || 'sunny',
+                touchTry: existingReport.touchTry || 0,
+                flyers: existingReport.flyers || 0,
+                trialLessons: existingReport.trialLessons || 0
+            });
+        } else {
+            setDailyReportInput({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
+        }
+        
+        setIsInputModalOpen(true);
+    };
+
+    // モーダル内での保存
     const handleSaveDailyReport = async () => {
-        if (selectedCampusId === 'All') return alert("日報を入力する校舎を選択してください。");
+        if (selectedCampusId === 'All') return;
         setIsSavingReport(true);
         try {
             await setDoc(doc(db, "daily_reports", `${selectedCampusId}_${reportDate}`), { 
@@ -667,6 +681,7 @@ function RobotSchoolDashboard() {
             });
             alert("日報を保存しました。");
             await fetchFromFirebaseAndCache();
+            setIsInputModalOpen(false); // モーダルを閉じる
         } catch (e) { alert("保存失敗: " + e.message); } finally { setIsSavingReport(false); }
     };
 
@@ -677,6 +692,56 @@ function RobotSchoolDashboard() {
 
     const toggleCampusMenu = (campusId) => {
         setExpandedCampusId(expandedCampusId === campusId ? null : campusId);
+    };
+
+    // カレンダーレンダリング関数
+    const renderCalendar = () => {
+        const monthIdx = MONTHS_LIST.indexOf(selectedMonth);
+        let targetYear = selectedYear;
+        let jsMonth = monthIdx + 3;
+        if (jsMonth > 11) {
+            jsMonth -= 12;
+            targetYear += 1;
+        }
+
+        const firstDay = new Date(targetYear, jsMonth, 1).getDay(); // 0:Sun
+        const daysInMonth = new Date(targetYear, jsMonth + 1, 0).getDate();
+        
+        // パディング (空セル)
+        const blanks = Array.from({ length: firstDay }, (_, i) => <div key={`blank-${i}`} className="h-24 bg-slate-50 border border-slate-100"></div>);
+        
+        // 日付セル
+        const days = Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1;
+            const dateStr = `${targetYear}-${('0'+(jsMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
+            const report = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dateStr);
+            const isToday = dateStr === formatDateStr(new Date());
+
+            return (
+                <div 
+                    key={day} 
+                    onClick={() => handleDateClick(day)}
+                    className={`h-24 border border-slate-200 p-2 cursor-pointer hover:bg-blue-50 transition-colors relative flex flex-col ${isToday ? 'bg-blue-50/50' : 'bg-white'}`}
+                >
+                    <span className={`text-sm font-bold mb-1 ${isToday ? 'text-blue-600' : 'text-slate-700'}`}>
+                        {day}
+                        {isToday && <span className="ml-1 text-[10px] bg-blue-100 text-blue-600 px-1 rounded">Today</span>}
+                    </span>
+                    {report ? (
+                        <div className="flex-1 flex flex-col justify-end gap-1">
+                            <div className="text-[10px] text-slate-500 bg-slate-100 px-1 rounded flex justify-between"><span>チラシ</span><span className="font-bold">{report.flyers}</span></div>
+                            <div className="text-[10px] text-slate-500 bg-slate-100 px-1 rounded flex justify-between"><span>体験</span><span className="font-bold">{report.trialLessons}</span></div>
+                        </div>
+                    ) : (
+                        <div className="flex-1 flex items-center justify-center text-slate-300">
+                            <Plus className="w-4 h-4 opacity-0 group-hover:opacity-100" />
+                        </div>
+                    )}
+                </div>
+            );
+        });
+
+        return [...blanks, ...days];
     };
 
     if (isLoading && !rawDataMap) return (<div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-500"><Loader2 className="w-10 h-10 animate-spin mb-4 text-blue-600" /><p>Loading Dashboard...</p></div>);
@@ -757,20 +822,20 @@ function RobotSchoolDashboard() {
                 </div>
             </aside>
 
-            <main className="flex-1 flex flex-col overflow-hidden h-screen">
+            <main className="flex-1 flex flex-col overflow-hidden h-screen relative">
                 {errorMsg && <div className="bg-red-50 border-l-4 border-red-500 p-4 m-4 mb-0 flex justify-between items-center"><div className="flex"><AlertCircle className="h-5 w-5 text-red-500" /><div className="ml-3"><p className="text-sm text-red-700">{errorMsg}</p></div></div><button onClick={() => setErrorMsg(null)} className="text-red-500">×</button></div>}
                 
                 <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-10 shrink-0">
                     <div>
                         <h1 className="text-xl font-bold text-slate-800">
-                            {{summary:'経営サマリー', students:'生徒数・入退会管理', marketing:'集客活動・販促管理', campus_daily:'日報入力', campus_weekly:'月度計画入力 (週次)', campus_yearly:'年間計画入力 (月度)', settings:'校舎設定・追加'}[activeTab]}
+                            {{summary:'経営サマリー', students:'生徒数・入退会管理', marketing:'集客活動・販促管理', campus_daily:'日報入力 (カレンダー)', campus_weekly:'月度計画入力 (週次)', campus_yearly:'年間計画入力 (月度)', settings:'校舎設定・追加'}[activeTab]}
                         </h1>
                         <p className="text-xs text-slate-500 mt-0.5 flex items-center">
                             {selectedCampusId !== 'All' ? <><Building className="w-3 h-3 mr-1"/> {selectedCampusName}</> : '全校舎合計'}
                         </p>
                     </div>
                     <div className="flex items-center space-x-3">
-                        {activeTab !== 'settings' && activeTab !== 'campus_daily' && activeTab !== 'campus_weekly' && (
+                        {activeTab !== 'settings' && activeTab !== 'campus_weekly' && (
                             <>
                                 <div className="flex items-center bg-slate-100 rounded-lg px-3 py-1 border border-slate-200">
                                     <span className="text-xs text-slate-500 mr-2 font-bold">年度</span>
@@ -778,10 +843,12 @@ function RobotSchoolDashboard() {
                                 </div>
                                 {activeTab !== 'campus_yearly' && (
                                     <>
-                                        <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
-                                            {[{k:'annual',l:'年度'},{k:'monthly',l:'月度'},{k:'weekly',l:'週次'}].map(m=><button key={m.k} onClick={()=>setViewMode(m.k)} className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${viewMode===m.k?'bg-white text-blue-600 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>{m.l}</button>)}
-                                        </div>
-                                        {viewMode !== 'annual' && (
+                                        {activeTab !== 'campus_daily' && (
+                                            <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
+                                                {[{k:'annual',l:'年度'},{k:'monthly',l:'月度'},{k:'weekly',l:'週次'}].map(m=><button key={m.k} onClick={()=>setViewMode(m.k)} className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${viewMode===m.k?'bg-white text-blue-600 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>{m.l}</button>)}
+                                            </div>
+                                        )}
+                                        {(viewMode !== 'annual' || activeTab === 'campus_daily') && (
                                             <div className="flex items-center bg-slate-100 rounded-lg px-3 py-1 border border-slate-200">
                                                 <Calendar className="w-3 h-3 text-slate-500 mr-2" />
                                                 <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="bg-transparent border-none text-sm font-medium text-slate-700 focus:ring-0 cursor-pointer py-1 pr-1">{MONTHS_LIST.map(m => <option key={m} value={m}>{m}</option>)}</select>
@@ -791,7 +858,6 @@ function RobotSchoolDashboard() {
                                 )}
                             </>
                         )}
-                        {/* データ更新ボタン */}
                         <button onClick={fetchFromFirebaseAndCache} disabled={isSyncing} className={`p-2 rounded-lg border border-slate-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-slate-50 text-slate-600'}`} title="データを最新の状態に更新"><RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /></button>
                     </div>
                 </header>
@@ -799,65 +865,26 @@ function RobotSchoolDashboard() {
                 <div className="flex-1 overflow-y-auto p-6">
                     <div className="max-w-7xl mx-auto space-y-6">
                         
-                        {/* Daily Report Input */}
+                        {/* Daily Report Input (Calendar View) */}
                         {activeTab === 'campus_daily' && (
-                            <div className="space-y-6 animate-in fade-in duration-500">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                                        <div className="flex justify-between items-center mb-6 border-b pb-4">
-                                            <h3 className="text-lg font-bold text-slate-800">日報入力 ({selectedCampusName})</h3>
-                                            <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} className="border rounded-lg px-3 py-1 bg-slate-50 font-mono text-sm" />
-                                        </div>
-                                        <div className="space-y-6">
-                                            <div>
-                                                <label className="block text-sm font-bold text-slate-700 mb-2">本日の天気</label>
-                                                <div className="grid grid-cols-4 gap-2">
-                                                    {[{id:'sunny',l:'晴',i:Sun,c:'text-orange-500'},{id:'cloudy',l:'曇',i:Cloud,c:'text-gray-500'},{id:'rainy',l:'雨',i:CloudRain,c:'text-blue-500'},{id:'snowy',l:'雪',i:Snowflake,c:'text-cyan-500'}].map(w=> (
-                                                        <button key={w.id} onClick={()=>setDailyReportInput({...dailyReportInput,weather:w.id})} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${dailyReportInput.weather===w.id?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'border-slate-200 hover:bg-slate-50'}`}>
-                                                            <w.i className={`mb-1 w-6 h-6 ${w.c}`} />
-                                                            <span className="text-xs font-bold">{w.l}</span>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="block text-xs font-bold text-slate-500 mb-1">チラシ配布 (枚)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
-                                                <div><label className="block text-xs font-bold text-slate-500 mb-1">タッチ＆トライ (件)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
-                                                <div><label className="block text-xs font-bold text-slate-500 mb-1">体験会実施 (回)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.trialLessons} onChange={e=>setDailyReportInput({...dailyReportInput,trialLessons:Number(e.target.value)})}/></div>
-                                            </div>
-                                            <button onClick={handleSaveDailyReport} disabled={isSavingReport} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition-all flex items-center justify-center disabled:opacity-50">
-                                                {isSavingReport ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>} 日報を保存
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                                        <h3 className="text-lg font-bold text-slate-800 mb-4">入力履歴 ({reportDate.slice(0,7)})</h3>
-                                        <div className="overflow-y-auto max-h-[400px]">
-                                            <table className="w-full text-sm">
-                                                <thead className="text-xs text-slate-500 bg-slate-50 sticky top-0">
-                                                    <tr><th className="p-2 text-left">日付</th><th className="p-2">チラシ</th><th className="p-2">T&T</th><th className="p-2">体験</th></tr>
-                                                </thead>
-                                                <tbody className="divide-y">
-                                                    {realDailyReports
-                                                        .filter(r => r.campusId === selectedCampusId && r.date.startsWith(reportDate.slice(0,7)))
-                                                        .sort((a,b) => b.date.localeCompare(a.date))
-                                                        .map(r => (
-                                                            <tr key={r.date} className="hover:bg-slate-50">
-                                                                <td className="p-2 font-mono">{r.date.slice(-2)}日</td>
-                                                                <td className="p-2 text-center">{r.flyers}</td>
-                                                                <td className="p-2 text-center">{r.touchTry}</td>
-                                                                <td className="p-2 text-center">{r.trialLessons}</td>
-                                                            </tr>
-                                                        ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 animate-in fade-in duration-500">
+                                <div className="mb-4 flex items-center justify-between">
+                                    <h2 className="text-lg font-bold text-slate-800 flex items-center">
+                                        <Calendar className="w-5 h-5 mr-2 text-blue-600" />
+                                        {selectedYear}年度 {selectedMonth} 日報カレンダー
+                                    </h2>
+                                    <div className="text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded">日付をクリックして入力・編集</div>
+                                </div>
+                                <div className="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden">
+                                    {['日','月','火','水','木','金','土'].map((d,i) => (
+                                        <div key={d} className={`p-2 text-center text-xs font-bold ${i===0?'text-red-500':i===6?'text-blue-500':'text-slate-600'} bg-slate-100`}>{d}</div>
+                                    ))}
+                                    {renderCalendar()}
                                 </div>
                             </div>
                         )}
 
-                        {/* Yearly Plan Input (Reused existing 'planning' logic) */}
+                        {/* Yearly Plan Input */}
                         {activeTab === 'campus_yearly' && (
                             <div className="space-y-6 animate-in fade-in duration-500">
                                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
@@ -885,7 +912,7 @@ function RobotSchoolDashboard() {
                             </div>
                         )}
 
-                        {/* Monthly Plan Input (Placeholder for future) */}
+                        {/* Monthly Plan Input (Placeholder) */}
                         {activeTab === 'campus_weekly' && (
                             <div className="space-y-6 animate-in fade-in duration-500">
                                 <div className="bg-white p-12 rounded-xl shadow-sm border border-slate-100 text-center">
@@ -900,6 +927,7 @@ function RobotSchoolDashboard() {
                             </div>
                         )}
 
+                        {/* Settings */}
                         {activeTab === 'settings' && (
                             <div className="space-y-6 animate-in fade-in duration-500">
                                 <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-100">
@@ -918,6 +946,7 @@ function RobotSchoolDashboard() {
                             </div>
                         )}
 
+                        {/* Summary */}
                         {activeTab === 'summary' && (
                             <div className="space-y-6 animate-in fade-in duration-500">
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -929,6 +958,7 @@ function RobotSchoolDashboard() {
                             </div>
                         )}
 
+                        {/* Students */}
                         {activeTab === 'students' && (
                             <div className="space-y-6 animate-in fade-in duration-500">
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -964,6 +994,7 @@ function RobotSchoolDashboard() {
                             </div>
                         )}
 
+                        {/* Marketing */}
                         {activeTab === 'marketing' && (
                             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 h-[500px] animate-in fade-in duration-500">
                                 <div className="flex justify-between items-center mb-6"><h3 className="text-lg font-bold text-slate-800">集客ファネル</h3><span className="text-sm text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{selectedCampusName} / {viewModeLabel}</span></div>
@@ -983,6 +1014,43 @@ function RobotSchoolDashboard() {
                         )}
                     </div>
                 </div>
+
+                {/* Input Modal */}
+                {isInputModalOpen && (
+                    <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full animate-in zoom-in-95 duration-200">
+                            <div className="flex justify-between items-center p-4 border-b border-slate-100">
+                                <h3 className="font-bold text-lg text-slate-800 flex items-center">
+                                    <PenTool className="w-5 h-5 mr-2 text-blue-600" />
+                                    日報入力 <span className="ml-2 text-sm font-normal text-slate-500">{reportDate}</span>
+                                </h3>
+                                <button onClick={() => setIsInputModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button>
+                            </div>
+                            <div className="p-6 space-y-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">本日の天気</label>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {[{id:'sunny',l:'晴',i:Sun,c:'text-orange-500'},{id:'cloudy',l:'曇',i:Cloud,c:'text-gray-500'},{id:'rainy',l:'雨',i:CloudRain,c:'text-blue-500'},{id:'snowy',l:'雪',i:Snowflake,c:'text-cyan-500'}].map(w=> (
+                                            <button key={w.id} onClick={()=>setDailyReportInput({...dailyReportInput,weather:w.id})} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${dailyReportInput.weather===w.id?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'border-slate-200 hover:bg-slate-50'}`}>
+                                                <w.i className={`mb-1 w-6 h-6 ${w.c}`} />
+                                                <span className="text-xs font-bold">{w.l}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">チラシ配布 (枚)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">タッチ＆トライ (件)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
+                                    <div className="col-span-2"><label className="block text-xs font-bold text-slate-500 mb-1">体験会実施 (回)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.trialLessons} onChange={e=>setDailyReportInput({...dailyReportInput,trialLessons:Number(e.target.value)})}/></div>
+                                </div>
+                                <button onClick={handleSaveDailyReport} disabled={isSavingReport} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition-all flex items-center justify-center disabled:opacity-50">
+                                    {isSavingReport ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>} 日報を保存
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
             </main>
         </div>
     );
