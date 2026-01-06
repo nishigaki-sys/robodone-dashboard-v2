@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine } from "recharts";
-import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw, Sun, Cloud, CloudRain, Snowflake, PenTool } from "lucide-react";
+import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw, Sun, Cloud, CloudRain, Snowflake, PenTool, ChevronDown, ChevronRight, Building } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
 
@@ -25,7 +25,7 @@ const CACHE_KEYS = {
     ENROLLMENTS: 'dash_enrollments',
     STATUS: 'dash_status',
     TRANSFERS: 'dash_transfers',
-    DAILY_REPORTS: 'dash_daily_reports', // 追加
+    DAILY_REPORTS: 'dash_daily_reports',
     LAST_UPDATED: 'dash_last_updated'
 };
 
@@ -56,7 +56,6 @@ const parseDate = (dateValue) => {
     return isNaN(d.getTime()) ? null : d;
 };
 
-// YYYY-MM-DD形式の文字列を返す
 const formatDateStr = (date) => {
     const y = date.getFullYear();
     const m = ('0' + (date.getMonth() + 1)).slice(-2);
@@ -146,8 +145,14 @@ function RobotSchoolDashboard() {
     const currentFiscalYear = today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
     const currentMonthStr = `${today.getMonth() + 1}月`;
 
-    const [activeTab, setActiveTab] = useState('summary');
+    // Navigation State
+    const [activeTab, setActiveTab] = useState('summary'); // summary, students, marketing, campus_daily, campus_weekly, campus_yearly, settings
     const [selectedCampusId, setSelectedCampusId] = useState('All');
+    
+    // Sidebar Expansion State
+    const [isCampusMenuOpen, setIsCampusMenuOpen] = useState(true);
+    const [expandedCampusId, setExpandedCampusId] = useState(null);
+
     const [viewMode, setViewMode] = useState('monthly');
     const [selectedMonth, setSelectedMonth] = useState(currentMonthStr);
     const [selectedYear, setSelectedYear] = useState(currentFiscalYear);
@@ -157,7 +162,7 @@ function RobotSchoolDashboard() {
     const [newCampusId, setNewCampusId] = useState("");
     const [newCampusSheetName, setNewCampusSheetName] = useState("");
     
-    // 日報用 State
+    // Daily Report State
     const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
     const [dailyReportInput, setDailyReportInput] = useState({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
     const [isSavingReport, setIsSavingReport] = useState(false);
@@ -172,7 +177,7 @@ function RobotSchoolDashboard() {
     const [realEnrollments, setRealEnrollments] = useState([]);
     const [realStatusChanges, setRealStatusChanges] = useState([]);
     const [realTransfers, setRealTransfers] = useState([]);
-    const [realDailyReports, setRealDailyReports] = useState([]); // 追加
+    const [realDailyReports, setRealDailyReports] = useState([]);
 
     const [rawDataMap, setRawDataMap] = useState(null);
     const [displayData, setDisplayData] = useState([]);
@@ -214,7 +219,6 @@ function RobotSchoolDashboard() {
         if (!isFirebaseInitialized || !db) return;
         setIsSyncing(true);
         try {
-            // daily_reports も取得対象に追加
             const [campusSnap, enrollSnap, statusSnap, transferSnap, reportSnap] = await Promise.all([
                 getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
                 getDocs(collection(db, "enrollments")),
@@ -317,7 +321,7 @@ function RobotSchoolDashboard() {
     }, [selectedCampusId, viewMode, selectedMonth, rawDataMap]);
 
     // ==========================================
-    // ★ 集計ロジック (日報データ統合)
+    // ★ 集計ロジック
     // ==========================================
     const generateAllCampusesData = (targetCampuses, realEnrollmentList, realStatusList, realTransferList, dailyReportsList, targetYear) => {
         const dataMap = {};
@@ -329,8 +333,6 @@ function RobotSchoolDashboard() {
             sheetNameToIdMap[normalizeString(key)] = c.id;
         });
 
-        // 日報データを高速検索できるようにマップ化
-        // キー: `${campusId}_${dateString}`
         const reportMap = {};
         dailyReportsList.forEach(r => {
             if (r.campusId && r.date) {
@@ -427,7 +429,6 @@ function RobotSchoolDashboard() {
                     const dayNum = dIdx + 1;
                     const getDayCount = (daysObj) => (daysObj[dayNum] || 0);
                     
-                    // 日報データの取得
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+dayNum).slice(-2)}`;
                     const report = reportMap[`${campusId}_${dateStr}`] || {};
 
@@ -448,7 +449,6 @@ function RobotSchoolDashboard() {
                         transfers: dTransfer,
                         graduates: dGraduate,
                         
-                        // 日報データ反映
                         flyers: report.flyers || 0,
                         touchAndTry: report.touchTry || 0,
                         trialLessons: report.trialLessons || 0,
@@ -476,7 +476,6 @@ function RobotSchoolDashboard() {
                             wVal.return += daily[i].returns;
                             wVal.transfer += daily[i].transfers;
                             wVal.graduate += daily[i].graduates;
-                            
                             wVal.flyers += daily[i].flyers;
                             wVal.touch += daily[i].touchAndTry;
                             wVal.trials += daily[i].trialLessons;
@@ -493,11 +492,9 @@ function RobotSchoolDashboard() {
                         returns: wVal.return,
                         transfers: wVal.transfer,
                         graduates: wVal.graduate,
-                        
                         flyers: wVal.flyers,
                         touchAndTry: wVal.touch,
                         trialLessons: wVal.trials,
-
                         totalStudents: currentStudents,
                         withdrawals_neg: -wVal.withdraw,
                         recesses_neg: -wVal.recess,
@@ -509,7 +506,6 @@ function RobotSchoolDashboard() {
                 const netChange = (val.enroll + val.transferIn) - (val.withdraw + val.transfer + val.graduate);
                 currentStudents += netChange;
 
-                // 月次合計に日報データを反映
                 let mFlyers = 0, mTouch = 0, mTrials = 0;
                 daily.forEach(d => {
                     mFlyers += d.flyers;
@@ -528,11 +524,9 @@ function RobotSchoolDashboard() {
                     transfers: val.transfer,
                     graduates: val.graduate,
                     totalStudents: currentStudents,
-                    
                     flyers: mFlyers,
                     touchAndTry: mTouch,
                     trialLessons: mTrials,
-
                     enrollmentRate: "0.0",
                     withdrawals_neg: -val.withdraw,
                     recesses_neg: -val.recess,
@@ -552,14 +546,12 @@ function RobotSchoolDashboard() {
                 newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0,
                 totalStudents: 0, flyers: 0, touchAndTry: 0, trialLessons: 0,
                 withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0,
-                
                 daily: Array.from({ length: daysInMonth }, (_, i) => ({ 
                     name: `${i+1}日`, 
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
                     flyers: 0, touchAndTry: 0, trialLessons: 0,
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 })),
-                
                 weekly: weeks.map(w => ({
                     name: w.name,
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
@@ -663,7 +655,6 @@ function RobotSchoolDashboard() {
         } catch (e) { alert("保存失敗: " + e.message); } finally { setIsSavingPlan(false); }
     };
 
-    // 日報保存処理
     const handleSaveDailyReport = async () => {
         if (selectedCampusId === 'All') return alert("日報を入力する校舎を選択してください。");
         setIsSavingReport(true);
@@ -675,43 +666,94 @@ function RobotSchoolDashboard() {
                 updatedAt: serverTimestamp() 
             });
             alert("日報を保存しました。");
-            // キャッシュ更新のために再取得
             await fetchFromFirebaseAndCache();
         } catch (e) { alert("保存失敗: " + e.message); } finally { setIsSavingReport(false); }
+    };
+
+    const handleMenuClick = (tab, campusId = 'All') => {
+        setActiveTab(tab);
+        setSelectedCampusId(campusId);
+    };
+
+    const toggleCampusMenu = (campusId) => {
+        setExpandedCampusId(expandedCampusId === campusId ? null : campusId);
     };
 
     if (isLoading && !rawDataMap) return (<div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-500"><Loader2 className="w-10 h-10 animate-spin mb-4 text-blue-600" /><p>Loading Dashboard...</p></div>);
 
     return (
         <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900">
-            <aside className="w-64 bg-slate-900 text-white hidden md:flex flex-col">
+            <aside className="w-64 bg-slate-900 text-white flex flex-col shrink-0 overflow-y-auto">
                 <div className="p-6 border-b border-slate-800">
                     <div className="flex items-center space-x-2">
                         <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center"><TrendingUp className="w-5 h-5 text-white" /></div>
                         <span className="text-lg font-bold tracking-tight">RobotSchool<span className="text-blue-400">Dash</span></span>
                     </div>
                 </div>
-                <nav className="flex-1 py-6 px-3 space-y-1">
-                    {[
-                        {id: 'summary', icon: LayoutDashboard, label: '経営サマリー'},
-                        {id: 'students', icon: Users, label: '生徒管理'},
-                        {id: 'marketing', icon: Megaphone, label: '集客・販促'},
-                        {id: 'daily', icon: PenTool, label: '日報管理'}, // 追加
-                        {id: 'planning', icon: FileText, label: '計画管理'},
-                        {id: 'settings', icon: Settings, label: '校舎設定'}
-                    ].map(m => (
-                        <button key={m.id} onClick={() => setActiveTab(m.id)} className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg transition-colors ${activeTab === m.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-                            <m.icon className="w-5 h-5" /><span className="font-medium">{m.label}</span>
-                        </button>
-                    ))}
+                <nav className="flex-1 py-4 px-3 space-y-1">
+                    <button onClick={() => handleMenuClick('summary')} className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg transition-colors ${activeTab === 'summary' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+                        <LayoutDashboard className="w-5 h-5" /><span className="font-medium">経営サマリー</span>
+                    </button>
+                    <button onClick={() => handleMenuClick('students')} className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg transition-colors ${activeTab === 'students' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+                        <Users className="w-5 h-5" /><span className="font-medium">生徒管理</span>
+                    </button>
+                    <button onClick={() => handleMenuClick('marketing')} className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg transition-colors ${activeTab === 'marketing' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+                        <Megaphone className="w-5 h-5" /><span className="font-medium">集客・販促</span>
+                    </button>
+                    
+                    <div className="pt-4 pb-2 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider flex justify-between cursor-pointer hover:text-slate-300" onClick={() => setIsCampusMenuOpen(!isCampusMenuOpen)}>
+                        <span>校舎管理</span>
+                        <ChevronDown className={`w-4 h-4 transition-transform ${isCampusMenuOpen ? 'rotate-180' : ''}`} />
+                    </div>
+                    
+                    {isCampusMenuOpen && (
+                        <div className="space-y-1">
+                            <button onClick={() => handleMenuClick('settings')} className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${activeTab === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+                                <Plus className="w-4 h-4" /><span className="text-sm">校舎追加</span>
+                            </button>
+                            
+                            {campusList.map(campus => (
+                                <div key={campus.id} className="ml-2">
+                                    <button 
+                                        onClick={() => toggleCampusMenu(campus.id)} 
+                                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-slate-400 hover:bg-slate-800 ${expandedCampusId === campus.id ? 'text-white bg-slate-800' : ''}`}
+                                    >
+                                        <div className="flex items-center"><Building className="w-4 h-4 mr-2" /><span className="text-sm">{campus.name}</span></div>
+                                        <ChevronRight className={`w-3 h-3 transition-transform ${expandedCampusId === campus.id ? 'rotate-90' : ''}`} />
+                                    </button>
+                                    
+                                    {expandedCampusId === campus.id && (
+                                        <div className="ml-4 pl-2 border-l border-slate-700 mt-1 space-y-1">
+                                            <button 
+                                                onClick={() => handleMenuClick('campus_daily', campus.id)} 
+                                                className={`w-full text-left px-3 py-1.5 text-xs rounded transition-colors ${activeTab === 'campus_daily' && selectedCampusId === campus.id ? 'text-blue-400 font-bold' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                └ 日報入力
+                                            </button>
+                                            <button 
+                                                onClick={() => handleMenuClick('campus_weekly', campus.id)} 
+                                                className={`w-full text-left px-3 py-1.5 text-xs rounded transition-colors ${activeTab === 'campus_weekly' && selectedCampusId === campus.id ? 'text-blue-400 font-bold' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                └ 月度計画入力
+                                            </button>
+                                            <button 
+                                                onClick={() => handleMenuClick('campus_yearly', campus.id)} 
+                                                className={`w-full text-left px-3 py-1.5 text-xs rounded transition-colors ${activeTab === 'campus_yearly' && selectedCampusId === campus.id ? 'text-blue-400 font-bold' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                └ 年間計画入力
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </nav>
-                <div className="p-4 border-t border-slate-800 text-xs text-slate-400 space-y-2">
+                <div className="p-4 border-t border-slate-800 text-xs text-slate-400 space-y-2 mt-auto">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center"><Database className={`w-3 h-3 mr-1 ${isFirebaseInitialized ? 'text-emerald-400' : 'text-slate-500'}`} />{isFirebaseInitialized ? (isUsingCache ? 'Local Cache' : 'Firebase') : 'Local Mode'}</div>
                     </div>
                     {lastUpdated && <div className="text-slate-500">更新: {lastUpdated.toLocaleTimeString()}</div>}
-                    <div className="flex items-center"><MapPin className="w-3 h-3 mr-1" />{selectedCampusName}</div>
-                    <div className="flex items-center"><Calendar className="w-3 h-3 mr-1" />{selectedYear}年度</div>
                 </div>
             </aside>
 
@@ -719,17 +761,22 @@ function RobotSchoolDashboard() {
                 {errorMsg && <div className="bg-red-50 border-l-4 border-red-500 p-4 m-4 mb-0 flex justify-between items-center"><div className="flex"><AlertCircle className="h-5 w-5 text-red-500" /><div className="ml-3"><p className="text-sm text-red-700">{errorMsg}</p></div></div><button onClick={() => setErrorMsg(null)} className="text-red-500">×</button></div>}
                 
                 <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-10 shrink-0">
-                    <h1 className="text-xl font-bold text-slate-800">
-                        {{summary:'経営サマリー', students:'生徒数・入退会管理', marketing:'集客活動・販促管理', daily:'日報管理・入力', planning:'年間計画・予算管理', settings:'校舎設定・管理'}[activeTab]}
-                    </h1>
+                    <div>
+                        <h1 className="text-xl font-bold text-slate-800">
+                            {{summary:'経営サマリー', students:'生徒数・入退会管理', marketing:'集客活動・販促管理', campus_daily:'日報入力', campus_weekly:'月度計画入力 (週次)', campus_yearly:'年間計画入力 (月度)', settings:'校舎設定・追加'}[activeTab]}
+                        </h1>
+                        <p className="text-xs text-slate-500 mt-0.5 flex items-center">
+                            {selectedCampusId !== 'All' ? <><Building className="w-3 h-3 mr-1"/> {selectedCampusName}</> : '全校舎合計'}
+                        </p>
+                    </div>
                     <div className="flex items-center space-x-3">
-                        {activeTab !== 'settings' && activeTab !== 'daily' && (
+                        {activeTab !== 'settings' && activeTab !== 'campus_daily' && activeTab !== 'campus_weekly' && (
                             <>
                                 <div className="flex items-center bg-slate-100 rounded-lg px-3 py-1 border border-slate-200">
                                     <span className="text-xs text-slate-500 mr-2 font-bold">年度</span>
                                     <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} className="bg-transparent border-none text-sm font-medium text-slate-700 focus:ring-0 cursor-pointer py-1">{YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}</select>
                                 </div>
-                                {activeTab !== 'planning' && (
+                                {activeTab !== 'campus_yearly' && (
                                     <>
                                         <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
                                             {[{k:'annual',l:'年度'},{k:'monthly',l:'月度'},{k:'weekly',l:'週次'}].map(m=><button key={m.k} onClick={()=>setViewMode(m.k)} className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${viewMode===m.k?'bg-white text-blue-600 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>{m.l}</button>)}
@@ -744,11 +791,7 @@ function RobotSchoolDashboard() {
                                 )}
                             </>
                         )}
-                        {/* 共通パーツ: 校舎選択 & 更新ボタン */}
-                        <div className="flex items-center bg-slate-100 rounded-lg px-3 py-1 border border-slate-200">
-                            <MapPin className="w-3 h-3 text-slate-500 mr-2" />
-                            <select value={selectedCampusId} onChange={(e) => setSelectedCampusId(e.target.value)} className="bg-transparent border-none text-sm font-medium text-slate-700 focus:ring-0 cursor-pointer py-1"><option value="All">全校舎 (合計)</option><option disabled>──────────</option>{campusList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-                        </div>
+                        {/* データ更新ボタン */}
                         <button onClick={fetchFromFirebaseAndCache} disabled={isSyncing} className={`p-2 rounded-lg border border-slate-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-slate-50 text-slate-600'}`} title="データを最新の状態に更新"><RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /></button>
                     </div>
                 </header>
@@ -756,100 +799,103 @@ function RobotSchoolDashboard() {
                 <div className="flex-1 overflow-y-auto p-6">
                     <div className="max-w-7xl mx-auto space-y-6">
                         
-                        {/* Daily Report Tab */}
-                        {activeTab === 'daily' && (
+                        {/* Daily Report Input */}
+                        {activeTab === 'campus_daily' && (
                             <div className="space-y-6 animate-in fade-in duration-500">
-                                {selectedCampusId === 'All' ? (
-                                    <div className="p-12 text-center text-slate-500 bg-white rounded-xl border border-slate-100 shadow-sm">
-                                        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4"><MapPin className="w-8 h-8 text-slate-400" /></div>
-                                        <h3 className="text-lg font-bold text-slate-700 mb-2">校舎を選択してください</h3>
-                                        <p>日報を入力・確認するには、右上のメニューから対象の校舎を選択してください。</p>
-                                    </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                                            <div className="flex justify-between items-center mb-6 border-b pb-4">
-                                                <h3 className="text-lg font-bold text-slate-800">日報入力</h3>
-                                                <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} className="border rounded-lg px-3 py-1 bg-slate-50 font-mono text-sm" />
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                                            <h3 className="text-lg font-bold text-slate-800">日報入力 ({selectedCampusName})</h3>
+                                            <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} className="border rounded-lg px-3 py-1 bg-slate-50 font-mono text-sm" />
+                                        </div>
+                                        <div className="space-y-6">
+                                            <div>
+                                                <label className="block text-sm font-bold text-slate-700 mb-2">本日の天気</label>
+                                                <div className="grid grid-cols-4 gap-2">
+                                                    {[{id:'sunny',l:'晴',i:Sun,c:'text-orange-500'},{id:'cloudy',l:'曇',i:Cloud,c:'text-gray-500'},{id:'rainy',l:'雨',i:CloudRain,c:'text-blue-500'},{id:'snowy',l:'雪',i:Snowflake,c:'text-cyan-500'}].map(w=> (
+                                                        <button key={w.id} onClick={()=>setDailyReportInput({...dailyReportInput,weather:w.id})} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${dailyReportInput.weather===w.id?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'border-slate-200 hover:bg-slate-50'}`}>
+                                                            <w.i className={`mb-1 w-6 h-6 ${w.c}`} />
+                                                            <span className="text-xs font-bold">{w.l}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             </div>
-                                            <div className="space-y-6">
-                                                <div>
-                                                    <label className="block text-sm font-bold text-slate-700 mb-2">本日の天気</label>
-                                                    <div className="grid grid-cols-4 gap-2">
-                                                        {[{id:'sunny',l:'晴',i:Sun,c:'text-orange-500'},{id:'cloudy',l:'曇',i:Cloud,c:'text-gray-500'},{id:'rainy',l:'雨',i:CloudRain,c:'text-blue-500'},{id:'snowy',l:'雪',i:Snowflake,c:'text-cyan-500'}].map(w=> (
-                                                            <button key={w.id} onClick={()=>setDailyReportInput({...dailyReportInput,weather:w.id})} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${dailyReportInput.weather===w.id?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'border-slate-200 hover:bg-slate-50'}`}>
-                                                                <w.i className={`mb-1 w-6 h-6 ${w.c}`} />
-                                                                <span className="text-xs font-bold">{w.l}</span>
-                                                            </button>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div><label className="block text-xs font-bold text-slate-500 mb-1">チラシ配布 (枚)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
+                                                <div><label className="block text-xs font-bold text-slate-500 mb-1">タッチ＆トライ (件)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
+                                                <div><label className="block text-xs font-bold text-slate-500 mb-1">体験会実施 (回)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.trialLessons} onChange={e=>setDailyReportInput({...dailyReportInput,trialLessons:Number(e.target.value)})}/></div>
+                                            </div>
+                                            <button onClick={handleSaveDailyReport} disabled={isSavingReport} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition-all flex items-center justify-center disabled:opacity-50">
+                                                {isSavingReport ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>} 日報を保存
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                                        <h3 className="text-lg font-bold text-slate-800 mb-4">入力履歴 ({reportDate.slice(0,7)})</h3>
+                                        <div className="overflow-y-auto max-h-[400px]">
+                                            <table className="w-full text-sm">
+                                                <thead className="text-xs text-slate-500 bg-slate-50 sticky top-0">
+                                                    <tr><th className="p-2 text-left">日付</th><th className="p-2">チラシ</th><th className="p-2">T&T</th><th className="p-2">体験</th></tr>
+                                                </thead>
+                                                <tbody className="divide-y">
+                                                    {realDailyReports
+                                                        .filter(r => r.campusId === selectedCampusId && r.date.startsWith(reportDate.slice(0,7)))
+                                                        .sort((a,b) => b.date.localeCompare(a.date))
+                                                        .map(r => (
+                                                            <tr key={r.date} className="hover:bg-slate-50">
+                                                                <td className="p-2 font-mono">{r.date.slice(-2)}日</td>
+                                                                <td className="p-2 text-center">{r.flyers}</td>
+                                                                <td className="p-2 text-center">{r.touchTry}</td>
+                                                                <td className="p-2 text-center">{r.trialLessons}</td>
+                                                            </tr>
                                                         ))}
-                                                    </div>
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">チラシ配布 (枚)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
-                                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">タッチ＆トライ (件)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
-                                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">体験会実施 (回)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.trialLessons} onChange={e=>setDailyReportInput({...dailyReportInput,trialLessons:Number(e.target.value)})}/></div>
-                                                </div>
-                                                <button onClick={handleSaveDailyReport} disabled={isSavingReport} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition-all flex items-center justify-center disabled:opacity-50">
-                                                    {isSavingReport ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>} 日報を保存
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                                            <h3 className="text-lg font-bold text-slate-800 mb-4">入力履歴 ({reportDate.slice(0,7)})</h3>
-                                            <div className="overflow-y-auto max-h-[400px]">
-                                                {/* 簡易履歴表示: current month reports for selected campus */}
-                                                <table className="w-full text-sm">
-                                                    <thead className="text-xs text-slate-500 bg-slate-50 sticky top-0">
-                                                        <tr><th className="p-2 text-left">日付</th><th className="p-2">チラシ</th><th className="p-2">T&T</th><th className="p-2">体験</th></tr>
-                                                    </thead>
-                                                    <tbody className="divide-y">
-                                                        {realDailyReports
-                                                            .filter(r => r.campusId === selectedCampusId && r.date.startsWith(reportDate.slice(0,7)))
-                                                            .sort((a,b) => b.date.localeCompare(a.date))
-                                                            .map(r => (
-                                                                <tr key={r.date} className="hover:bg-slate-50">
-                                                                    <td className="p-2 font-mono">{r.date.slice(-2)}日</td>
-                                                                    <td className="p-2 text-center">{r.flyers}</td>
-                                                                    <td className="p-2 text-center">{r.touchTry}</td>
-                                                                    <td className="p-2 text-center">{r.trialLessons}</td>
-                                                                </tr>
-                                                            ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
-                                )}
+                                </div>
                             </div>
                         )}
 
-                        {activeTab === 'planning' && (
+                        {/* Yearly Plan Input (Reused existing 'planning' logic) */}
+                        {activeTab === 'campus_yearly' && (
                             <div className="space-y-6 animate-in fade-in duration-500">
                                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
                                     <div className="flex justify-between items-center mb-6">
                                         <h2 className="text-lg font-bold text-slate-800 flex items-center"><FileText className="w-5 h-5 mr-2 text-blue-600" />年間計画入力 ({selectedCampusName} / {selectedYear}年度)</h2>
-                                        {selectedCampusId !== 'All' && <button onClick={savePlanData} disabled={isSavingPlan} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center shadow-sm disabled:opacity-50"><Save className="w-4 h-4 mr-2" />{isSavingPlan ? '保存中...' : '計画を保存'}</button>}
+                                        <button onClick={savePlanData} disabled={isSavingPlan} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center shadow-sm disabled:opacity-50"><Save className="w-4 h-4 mr-2" />{isSavingPlan ? '保存中...' : '計画を保存'}</button>
                                     </div>
-                                    {selectedCampusId === 'All' ? (
-                                        <div className="p-8 text-center text-slate-500 bg-slate-50 rounded-lg"><AlertCircle className="w-10 h-10 mx-auto mb-2 text-slate-400" /><p>全校舎の合計画面では計画入力はできません。</p></div>
-                                    ) : (
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-sm text-left border-collapse">
-                                                <thead className="bg-slate-50 text-slate-600 font-medium border-b border-slate-200"><tr><th className="px-4 py-3 w-20">月度</th><th className="px-4 py-3 w-32">目標入会数</th><th className="px-4 py-3 w-32">体験会実施</th><th className="px-4 py-3 w-32">タッチ&トライ</th><th className="px-4 py-3 w-32">門配数</th><th className="px-4 py-3 w-24">入会率(%)</th></tr></thead>
-                                                <tbody className="divide-y divide-slate-100">
-                                                    {MONTHS_LIST.map((month) => (
-                                                        <tr key={month} className="hover:bg-slate-50">
-                                                            <td className="px-4 py-3 font-bold text-slate-700 bg-slate-50/50">{month}</td>
-                                                            {['enrollments', 'trials', 'touchTry', 'flyers'].map(field => (
-                                                                <td key={field} className="px-4 py-2"><input type="number" min="0" value={planData[month]?.[field] || 0} onChange={(e) => handlePlanChange(month, field, e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right" /></td>
-                                                            ))}
-                                                            <td className="px-4 py-3 text-right font-medium text-slate-600">{planData[month]?.rate}%</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm text-left border-collapse">
+                                            <thead className="bg-slate-50 text-slate-600 font-medium border-b border-slate-200"><tr><th className="px-4 py-3 w-20">月度</th><th className="px-4 py-3 w-32">目標入会数</th><th className="px-4 py-3 w-32">体験会実施</th><th className="px-4 py-3 w-32">タッチ&トライ</th><th className="px-4 py-3 w-32">門配数</th><th className="px-4 py-3 w-24">入会率(%)</th></tr></thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {MONTHS_LIST.map((month) => (
+                                                    <tr key={month} className="hover:bg-slate-50">
+                                                        <td className="px-4 py-3 font-bold text-slate-700 bg-slate-50/50">{month}</td>
+                                                        {['enrollments', 'trials', 'touchTry', 'flyers'].map(field => (
+                                                            <td key={field} className="px-4 py-2"><input type="number" min="0" value={planData[month]?.[field] || 0} onChange={(e) => handlePlanChange(month, field, e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right" /></td>
+                                                        ))}
+                                                        <td className="px-4 py-3 text-right font-medium text-slate-600">{planData[month]?.rate}%</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Monthly Plan Input (Placeholder for future) */}
+                        {activeTab === 'campus_weekly' && (
+                            <div className="space-y-6 animate-in fade-in duration-500">
+                                <div className="bg-white p-12 rounded-xl shadow-sm border border-slate-100 text-center">
+                                    <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <Calendar className="w-8 h-8 text-blue-400" />
+                                    </div>
+                                    <h3 className="text-xl font-bold text-slate-800 mb-2">月度計画（週次）入力</h3>
+                                    <p className="text-slate-500 max-w-md mx-auto">
+                                        この機能は現在準備中です。将来的に、月ごとの目標を週単位にブレイクダウンして管理できるようになります。
+                                    </p>
                                 </div>
                             </div>
                         )}
