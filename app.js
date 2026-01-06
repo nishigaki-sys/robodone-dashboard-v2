@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine } from "recharts";
-import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw } from "lucide-react";
+import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw, Sun, Cloud, CloudRain, Snowflake, PenTool } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
 
@@ -25,6 +25,7 @@ const CACHE_KEYS = {
     ENROLLMENTS: 'dash_enrollments',
     STATUS: 'dash_status',
     TRANSFERS: 'dash_transfers',
+    DAILY_REPORTS: 'dash_daily_reports', // 追加
     LAST_UPDATED: 'dash_last_updated'
 };
 
@@ -55,6 +56,14 @@ const parseDate = (dateValue) => {
     return isNaN(d.getTime()) ? null : d;
 };
 
+// YYYY-MM-DD形式の文字列を返す
+const formatDateStr = (date) => {
+    const y = date.getFullYear();
+    const m = ('0' + (date.getMonth() + 1)).slice(-2);
+    const d = ('0' + date.getDate()).slice(-2);
+    return `${y}-${m}-${d}`;
+};
+
 const getFiscalYear = (date) => {
     if (!date) return -1;
     return date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear();
@@ -69,33 +78,25 @@ const createInitialPlanData = () => {
     }, {});
 };
 
-// ★ 新規: 指定された年・月の週構成（期間・ラベル）を生成する関数
 const getWeeksStruct = (fiscalYear, monthIndex) => {
-    // monthIndex: 0(4月) ～ 11(3月)
     let targetYear = fiscalYear;
-    let jsMonth = monthIndex + 3; // 4月=3
+    let jsMonth = monthIndex + 3;
     if (jsMonth > 11) {
         jsMonth -= 12;
         targetYear += 1;
     }
-    
     const daysInMonth = new Date(targetYear, jsMonth + 1, 0).getDate();
     const weeks = [];
     let startDay = 1;
 
-    // 1日から月末までループして区切りを見つける
     for (let day = 1; day <= daysInMonth; day++) {
         const dateObj = new Date(targetYear, jsMonth, day);
-        const dayOfWeek = dateObj.getDay(); // 0:Sun, 1:Mon...
-        
+        const dayOfWeek = dateObj.getDay();
         let isWeekEnd = false;
-        // 基本は日曜日(0)で区切る
-        // 例外: 月初(1日)が日曜の場合は、その週には含めず翌週の日曜まで引っ張る(8日間)
         if (dayOfWeek === 0) {
             if (day === 1) isWeekEnd = false;
             else isWeekEnd = true;
         }
-        // 月末は強制区切り
         if (day === daysInMonth) isWeekEnd = true;
 
         if (isWeekEnd) {
@@ -109,7 +110,6 @@ const getWeeksStruct = (fiscalYear, monthIndex) => {
     }
     return { weeks, daysInMonth, targetYear, jsMonth };
 };
-
 
 // UI Components
 const StatCard = ({ title, value, subValue, trend, icon: Icon, color, details }) => (
@@ -157,6 +157,11 @@ function RobotSchoolDashboard() {
     const [newCampusId, setNewCampusId] = useState("");
     const [newCampusSheetName, setNewCampusSheetName] = useState("");
     
+    // 日報用 State
+    const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
+    const [dailyReportInput, setDailyReportInput] = useState({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
+    const [isSavingReport, setIsSavingReport] = useState(false);
+
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [isUsingCache, setIsUsingCache] = useState(false);
@@ -167,6 +172,7 @@ function RobotSchoolDashboard() {
     const [realEnrollments, setRealEnrollments] = useState([]);
     const [realStatusChanges, setRealStatusChanges] = useState([]);
     const [realTransfers, setRealTransfers] = useState([]);
+    const [realDailyReports, setRealDailyReports] = useState([]); // 追加
 
     const [rawDataMap, setRawDataMap] = useState(null);
     const [displayData, setDisplayData] = useState([]);
@@ -187,6 +193,7 @@ function RobotSchoolDashboard() {
             const cachedEnroll = localStorage.getItem(CACHE_KEYS.ENROLLMENTS);
             const cachedStatus = localStorage.getItem(CACHE_KEYS.STATUS);
             const cachedTransfers = localStorage.getItem(CACHE_KEYS.TRANSFERS);
+            const cachedReports = localStorage.getItem(CACHE_KEYS.DAILY_REPORTS);
             const cachedTime = localStorage.getItem(CACHE_KEYS.LAST_UPDATED);
 
             if (cachedCampuses && cachedEnroll && cachedStatus && cachedTransfers) {
@@ -194,6 +201,7 @@ function RobotSchoolDashboard() {
                 setRealEnrollments(JSON.parse(cachedEnroll));
                 setRealStatusChanges(JSON.parse(cachedStatus));
                 setRealTransfers(JSON.parse(cachedTransfers));
+                if (cachedReports) setRealDailyReports(JSON.parse(cachedReports));
                 if (cachedTime) setLastUpdated(new Date(cachedTime));
                 setIsUsingCache(true);
                 return true;
@@ -206,23 +214,27 @@ function RobotSchoolDashboard() {
         if (!isFirebaseInitialized || !db) return;
         setIsSyncing(true);
         try {
-            const [campusSnap, enrollSnap, statusSnap, transferSnap] = await Promise.all([
+            // daily_reports も取得対象に追加
+            const [campusSnap, enrollSnap, statusSnap, transferSnap, reportSnap] = await Promise.all([
                 getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
                 getDocs(collection(db, "enrollments")),
                 getDocs(collection(db, "status_changes")),
-                getDocs(collection(db, "transfers"))
+                getDocs(collection(db, "transfers")),
+                getDocs(collection(db, "daily_reports"))
             ]);
 
             const campuses = campusSnap.docs.map(doc => ({ id: doc.id, name: doc.data().name || doc.id, sheetName: doc.data().sheetName || doc.data().name || doc.id }));
             const enrollments = enrollSnap.docs.map(d => ({id:d.id, ...d.data()}));
             const status = statusSnap.docs.map(d => ({id:d.id, ...d.data()}));
             const transfers = transferSnap.docs.map(d => ({id:d.id, ...d.data()}));
+            const reports = reportSnap.docs.map(d => ({id:d.id, ...d.data()}));
             const now = new Date();
 
             setCampusList(campuses);
             setRealEnrollments(enrollments);
             setRealStatusChanges(status);
             setRealTransfers(transfers);
+            setRealDailyReports(reports);
             setLastUpdated(now);
             setIsUsingCache(false);
 
@@ -230,6 +242,7 @@ function RobotSchoolDashboard() {
             localStorage.setItem(CACHE_KEYS.ENROLLMENTS, JSON.stringify(enrollments));
             localStorage.setItem(CACHE_KEYS.STATUS, JSON.stringify(status));
             localStorage.setItem(CACHE_KEYS.TRANSFERS, JSON.stringify(transfers));
+            localStorage.setItem(CACHE_KEYS.DAILY_REPORTS, JSON.stringify(reports));
             localStorage.setItem(CACHE_KEYS.LAST_UPDATED, now.toISOString());
         } catch (e) {
             console.error(e);
@@ -246,6 +259,7 @@ function RobotSchoolDashboard() {
         init();
     }, []);
 
+    // 計画データ取得
     useEffect(() => {
         const fetchPlan = async () => {
             if (selectedCampusId === 'All' || !isFirebaseInitialized || !db) {
@@ -261,17 +275,35 @@ function RobotSchoolDashboard() {
         fetchPlan();
     }, [selectedCampusId, selectedYear]);
 
+    // 日報入力フォームの初期値セット
+    useEffect(() => {
+        if (selectedCampusId === 'All') return;
+        const targetReport = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === reportDate);
+        if (targetReport) {
+            setDailyReportInput({
+                weather: targetReport.weather || 'sunny',
+                touchTry: targetReport.touchTry || 0,
+                flyers: targetReport.flyers || 0,
+                trialLessons: targetReport.trialLessons || 0
+            });
+        } else {
+            setDailyReportInput({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
+        }
+    }, [selectedCampusId, reportDate, realDailyReports]);
+
+    // 集計ロジック実行
     useEffect(() => {
         const generateData = async () => {
             setIsLoading(true);
             await new Promise(resolve => setTimeout(resolve, 100));
-            const map = generateAllCampusesData(campusList, realEnrollments, realStatusChanges, realTransfers, selectedYear);
+            const map = generateAllCampusesData(campusList, realEnrollments, realStatusChanges, realTransfers, realDailyReports, selectedYear);
             setRawDataMap(map);
             setIsLoading(false);
         };
         generateData();
-    }, [campusList, realEnrollments, realStatusChanges, realTransfers, selectedYear]);
+    }, [campusList, realEnrollments, realStatusChanges, realTransfers, realDailyReports, selectedYear]);
 
+    // 表示データ抽出
     useEffect(() => {
         if (rawDataMap) {
             const campusData = rawDataMap[selectedCampusId] || [];
@@ -285,9 +317,9 @@ function RobotSchoolDashboard() {
     }, [selectedCampusId, viewMode, selectedMonth, rawDataMap]);
 
     // ==========================================
-    // ★ 集計ロジック
+    // ★ 集計ロジック (日報データ統合)
     // ==========================================
-    const generateAllCampusesData = (targetCampuses, realEnrollmentList, realStatusList, realTransferList, targetYear) => {
+    const generateAllCampusesData = (targetCampuses, realEnrollmentList, realStatusList, realTransferList, dailyReportsList, targetYear) => {
         const dataMap = {};
         const sheetNameToIdMap = {};
         
@@ -295,6 +327,15 @@ function RobotSchoolDashboard() {
             const key = c.sheetName || c.name;
             sheetNameToIdMap[key] = c.id;
             sheetNameToIdMap[normalizeString(key)] = c.id;
+        });
+
+        // 日報データを高速検索できるようにマップ化
+        // キー: `${campusId}_${dateString}`
+        const reportMap = {};
+        dailyReportsList.forEach(r => {
+            if (r.campusId && r.date) {
+                reportMap[`${r.campusId}_${r.date}`] = r;
+            }
         });
 
         const countTotalBefore = (list, year, typeFilter = null) => {
@@ -380,14 +421,16 @@ function RobotSchoolDashboard() {
                     val.graduate = getCount(graduateCounts);
                 }
 
-                // ★ 週構造と日数の取得
-                const { weeks, daysInMonth } = getWeeksStruct(targetYear, mIdx);
+                const { weeks, daysInMonth, targetYear: tYear, jsMonth: tMonth } = getWeeksStruct(targetYear, mIdx);
 
-                // --- 日次データ生成 ---
                 const daily = Array.from({ length: daysInMonth }, (_, dIdx) => {
                     const dayNum = dIdx + 1;
                     const getDayCount = (daysObj) => (daysObj[dayNum] || 0);
                     
+                    // 日報データの取得
+                    const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+dayNum).slice(-2)}`;
+                    const report = reportMap[`${campusId}_${dateStr}`] || {};
+
                     const dEnroll = hasRealData ? getDayCount(getDays(enrollmentCounts)) : 0;
                     const dTransferIn = hasRealData ? getDayCount(getDays(transferInCounts)) : 0;
                     const dWithdraw = hasRealData ? getDayCount(getDays(withdrawalCounts)) : 0;
@@ -404,7 +447,12 @@ function RobotSchoolDashboard() {
                         returns: hasRealData ? getDayCount(getDays(returnCounts)) : 0,
                         transfers: dTransfer,
                         graduates: dGraduate,
-                        flyers: 0,
+                        
+                        // 日報データ反映
+                        flyers: report.flyers || 0,
+                        touchAndTry: report.touchTry || 0,
+                        trialLessons: report.trialLessons || 0,
+
                         totalStudents: currentStudents, 
                         withdrawals_neg: -dWithdraw,
                         recesses_neg: hasRealData ? -getDayCount(getDays(recessCounts)) : 0,
@@ -413,11 +461,12 @@ function RobotSchoolDashboard() {
                     };
                 });
 
-                // --- 週次データ生成 (定義された週期間に基づいて集計) ---
                 const weekly = weeks.map(week => {
-                    let wVal = { enroll: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0, transferIn: 0 };
+                    let wVal = { 
+                        enroll: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0, transferIn: 0,
+                        flyers: 0, touch: 0, trials: 0
+                    };
                     
-                    // week.startDay から week.endDay までの日次データを合計
                     for (let i = week.startDay - 1; i < week.endDay; i++) {
                         if (daily[i]) {
                             wVal.enroll += daily[i].newEnrollments;
@@ -427,11 +476,15 @@ function RobotSchoolDashboard() {
                             wVal.return += daily[i].returns;
                             wVal.transfer += daily[i].transfers;
                             wVal.graduate += daily[i].graduates;
+                            
+                            wVal.flyers += daily[i].flyers;
+                            wVal.touch += daily[i].touchAndTry;
+                            wVal.trials += daily[i].trialLessons;
                         }
                     }
 
                     return {
-                        name: week.name, // "第1週 (1日～7日)"
+                        name: week.name,
                         budgetRevenue: 0, actualRevenue: 0,
                         newEnrollments: wVal.enroll,
                         transferIns: wVal.transferIn,
@@ -440,7 +493,11 @@ function RobotSchoolDashboard() {
                         returns: wVal.return,
                         transfers: wVal.transfer,
                         graduates: wVal.graduate,
-                        flyers: 0,
+                        
+                        flyers: wVal.flyers,
+                        touchAndTry: wVal.touch,
+                        trialLessons: wVal.trials,
+
                         totalStudents: currentStudents,
                         withdrawals_neg: -wVal.withdraw,
                         recesses_neg: -wVal.recess,
@@ -451,6 +508,14 @@ function RobotSchoolDashboard() {
 
                 const netChange = (val.enroll + val.transferIn) - (val.withdraw + val.transfer + val.graduate);
                 currentStudents += netChange;
+
+                // 月次合計に日報データを反映
+                let mFlyers = 0, mTouch = 0, mTrials = 0;
+                daily.forEach(d => {
+                    mFlyers += d.flyers;
+                    mTouch += d.touchAndTry;
+                    mTrials += d.trialLessons;
+                });
 
                 return {
                     name: month,
@@ -463,7 +528,11 @@ function RobotSchoolDashboard() {
                     transfers: val.transfer,
                     graduates: val.graduate,
                     totalStudents: currentStudents,
-                    flyers: 0,
+                    
+                    flyers: mFlyers,
+                    touchAndTry: mTouch,
+                    trialLessons: mTrials,
+
                     enrollmentRate: "0.0",
                     withdrawals_neg: -val.withdraw,
                     recesses_neg: -val.recess,
@@ -474,27 +543,27 @@ function RobotSchoolDashboard() {
             });
         });
 
-        // 合計ロジック ('All')
         dataMap['All'] = MONTHS_LIST.map((month, idx) => {
-            // 月ごとの週構造を取得
             const { weeks, daysInMonth } = getWeeksStruct(targetYear, idx);
 
             const combined = {
                 name: month,
                 budgetRevenue: 0, actualRevenue: 0,
                 newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0,
-                totalStudents: 0, flyers: 0,
+                totalStudents: 0, flyers: 0, touchAndTry: 0, trialLessons: 0,
                 withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0,
                 
                 daily: Array.from({ length: daysInMonth }, (_, i) => ({ 
                     name: `${i+1}日`, 
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
+                    flyers: 0, touchAndTry: 0, trialLessons: 0,
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 })),
                 
                 weekly: weeks.map(w => ({
                     name: w.name,
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
+                    flyers: 0, touchAndTry: 0, trialLessons: 0,
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 }))
             };
@@ -528,7 +597,7 @@ function RobotSchoolDashboard() {
     };
 
     const totals = useMemo(() => {
-        if (!displayData || displayData.length === 0) return { newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0 };
+        if (!displayData || displayData.length === 0) return { newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0, flyers: 0, touchAndTry: 0, trialLessons: 0 };
         return displayData.reduce((acc, curr) => ({
             newEnrollments: acc.newEnrollments + (curr.newEnrollments || 0),
             transferIns: acc.transferIns + (curr.transferIns || 0),
@@ -537,7 +606,10 @@ function RobotSchoolDashboard() {
             returns: acc.returns + (curr.returns || 0),
             transfers: acc.transfers + (curr.transfers || 0),
             graduates: acc.graduates + (curr.graduates || 0),
-        }), { newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0 });
+            flyers: acc.flyers + (curr.flyers || 0),
+            touchAndTry: acc.touchAndTry + (curr.touchAndTry || 0),
+            trialLessons: acc.trialLessons + (curr.trialLessons || 0),
+        }), { newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0, flyers: 0, touchAndTry: 0, trialLessons: 0 });
     }, [displayData]);
 
     const currentTotalStudents = displayData.length > 0 ? (viewMode === 'annual' ? displayData[displayData.length-1].totalStudents : displayData[0].totalStudents) : 0;
@@ -591,6 +663,23 @@ function RobotSchoolDashboard() {
         } catch (e) { alert("保存失敗: " + e.message); } finally { setIsSavingPlan(false); }
     };
 
+    // 日報保存処理
+    const handleSaveDailyReport = async () => {
+        if (selectedCampusId === 'All') return alert("日報を入力する校舎を選択してください。");
+        setIsSavingReport(true);
+        try {
+            await setDoc(doc(db, "daily_reports", `${selectedCampusId}_${reportDate}`), { 
+                campusId: selectedCampusId, 
+                date: reportDate, 
+                ...dailyReportInput, 
+                updatedAt: serverTimestamp() 
+            });
+            alert("日報を保存しました。");
+            // キャッシュ更新のために再取得
+            await fetchFromFirebaseAndCache();
+        } catch (e) { alert("保存失敗: " + e.message); } finally { setIsSavingReport(false); }
+    };
+
     if (isLoading && !rawDataMap) return (<div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-500"><Loader2 className="w-10 h-10 animate-spin mb-4 text-blue-600" /><p>Loading Dashboard...</p></div>);
 
     return (
@@ -607,6 +696,7 @@ function RobotSchoolDashboard() {
                         {id: 'summary', icon: LayoutDashboard, label: '経営サマリー'},
                         {id: 'students', icon: Users, label: '生徒管理'},
                         {id: 'marketing', icon: Megaphone, label: '集客・販促'},
+                        {id: 'daily', icon: PenTool, label: '日報管理'}, // 追加
                         {id: 'planning', icon: FileText, label: '計画管理'},
                         {id: 'settings', icon: Settings, label: '校舎設定'}
                     ].map(m => (
@@ -630,10 +720,10 @@ function RobotSchoolDashboard() {
                 
                 <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-10 shrink-0">
                     <h1 className="text-xl font-bold text-slate-800">
-                        {{summary:'経営サマリー', students:'生徒数・入退会管理', marketing:'集客活動・販促管理', planning:'年間計画・予算管理', settings:'校舎設定・管理'}[activeTab]}
+                        {{summary:'経営サマリー', students:'生徒数・入退会管理', marketing:'集客活動・販促管理', daily:'日報管理・入力', planning:'年間計画・予算管理', settings:'校舎設定・管理'}[activeTab]}
                     </h1>
                     <div className="flex items-center space-x-3">
-                        {activeTab !== 'settings' && (
+                        {activeTab !== 'settings' && activeTab !== 'daily' && (
                             <>
                                 <div className="flex items-center bg-slate-100 rounded-lg px-3 py-1 border border-slate-200">
                                     <span className="text-xs text-slate-500 mr-2 font-bold">年度</span>
@@ -652,18 +742,87 @@ function RobotSchoolDashboard() {
                                         )}
                                     </>
                                 )}
-                                <div className="flex items-center bg-slate-100 rounded-lg px-3 py-1 border border-slate-200">
-                                    <MapPin className="w-3 h-3 text-slate-500 mr-2" />
-                                    <select value={selectedCampusId} onChange={(e) => setSelectedCampusId(e.target.value)} className="bg-transparent border-none text-sm font-medium text-slate-700 focus:ring-0 cursor-pointer py-1"><option value="All">全校舎 (合計)</option><option disabled>──────────</option>{campusList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-                                </div>
-                                <button onClick={fetchFromFirebaseAndCache} disabled={isSyncing} className={`p-2 rounded-lg border border-slate-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-slate-50 text-slate-600'}`} title="データを最新の状態に更新"><RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /></button>
                             </>
                         )}
+                        {/* 共通パーツ: 校舎選択 & 更新ボタン */}
+                        <div className="flex items-center bg-slate-100 rounded-lg px-3 py-1 border border-slate-200">
+                            <MapPin className="w-3 h-3 text-slate-500 mr-2" />
+                            <select value={selectedCampusId} onChange={(e) => setSelectedCampusId(e.target.value)} className="bg-transparent border-none text-sm font-medium text-slate-700 focus:ring-0 cursor-pointer py-1"><option value="All">全校舎 (合計)</option><option disabled>──────────</option>{campusList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+                        </div>
+                        <button onClick={fetchFromFirebaseAndCache} disabled={isSyncing} className={`p-2 rounded-lg border border-slate-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-slate-50 text-slate-600'}`} title="データを最新の状態に更新"><RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /></button>
                     </div>
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-6">
                     <div className="max-w-7xl mx-auto space-y-6">
+                        
+                        {/* Daily Report Tab */}
+                        {activeTab === 'daily' && (
+                            <div className="space-y-6 animate-in fade-in duration-500">
+                                {selectedCampusId === 'All' ? (
+                                    <div className="p-12 text-center text-slate-500 bg-white rounded-xl border border-slate-100 shadow-sm">
+                                        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4"><MapPin className="w-8 h-8 text-slate-400" /></div>
+                                        <h3 className="text-lg font-bold text-slate-700 mb-2">校舎を選択してください</h3>
+                                        <p>日報を入力・確認するには、右上のメニューから対象の校舎を選択してください。</p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                                            <div className="flex justify-between items-center mb-6 border-b pb-4">
+                                                <h3 className="text-lg font-bold text-slate-800">日報入力</h3>
+                                                <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} className="border rounded-lg px-3 py-1 bg-slate-50 font-mono text-sm" />
+                                            </div>
+                                            <div className="space-y-6">
+                                                <div>
+                                                    <label className="block text-sm font-bold text-slate-700 mb-2">本日の天気</label>
+                                                    <div className="grid grid-cols-4 gap-2">
+                                                        {[{id:'sunny',l:'晴',i:Sun,c:'text-orange-500'},{id:'cloudy',l:'曇',i:Cloud,c:'text-gray-500'},{id:'rainy',l:'雨',i:CloudRain,c:'text-blue-500'},{id:'snowy',l:'雪',i:Snowflake,c:'text-cyan-500'}].map(w=> (
+                                                            <button key={w.id} onClick={()=>setDailyReportInput({...dailyReportInput,weather:w.id})} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${dailyReportInput.weather===w.id?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'border-slate-200 hover:bg-slate-50'}`}>
+                                                                <w.i className={`mb-1 w-6 h-6 ${w.c}`} />
+                                                                <span className="text-xs font-bold">{w.l}</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">チラシ配布 (枚)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
+                                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">タッチ＆トライ (件)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
+                                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">体験会実施 (回)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg" value={dailyReportInput.trialLessons} onChange={e=>setDailyReportInput({...dailyReportInput,trialLessons:Number(e.target.value)})}/></div>
+                                                </div>
+                                                <button onClick={handleSaveDailyReport} disabled={isSavingReport} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition-all flex items-center justify-center disabled:opacity-50">
+                                                    {isSavingReport ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>} 日報を保存
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                                            <h3 className="text-lg font-bold text-slate-800 mb-4">入力履歴 ({reportDate.slice(0,7)})</h3>
+                                            <div className="overflow-y-auto max-h-[400px]">
+                                                {/* 簡易履歴表示: current month reports for selected campus */}
+                                                <table className="w-full text-sm">
+                                                    <thead className="text-xs text-slate-500 bg-slate-50 sticky top-0">
+                                                        <tr><th className="p-2 text-left">日付</th><th className="p-2">チラシ</th><th className="p-2">T&T</th><th className="p-2">体験</th></tr>
+                                                    </thead>
+                                                    <tbody className="divide-y">
+                                                        {realDailyReports
+                                                            .filter(r => r.campusId === selectedCampusId && r.date.startsWith(reportDate.slice(0,7)))
+                                                            .sort((a,b) => b.date.localeCompare(a.date))
+                                                            .map(r => (
+                                                                <tr key={r.date} className="hover:bg-slate-50">
+                                                                    <td className="p-2 font-mono">{r.date.slice(-2)}日</td>
+                                                                    <td className="p-2 text-center">{r.flyers}</td>
+                                                                    <td className="p-2 text-center">{r.touchTry}</td>
+                                                                    <td className="p-2 text-center">{r.trialLessons}</td>
+                                                                </tr>
+                                                            ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {activeTab === 'planning' && (
                             <div className="space-y-6 animate-in fade-in duration-500">
                                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
