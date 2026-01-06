@@ -69,6 +69,48 @@ const createInitialPlanData = () => {
     }, {});
 };
 
+// ★ 新規: 指定された年・月の週構成（期間・ラベル）を生成する関数
+const getWeeksStruct = (fiscalYear, monthIndex) => {
+    // monthIndex: 0(4月) ～ 11(3月)
+    let targetYear = fiscalYear;
+    let jsMonth = monthIndex + 3; // 4月=3
+    if (jsMonth > 11) {
+        jsMonth -= 12;
+        targetYear += 1;
+    }
+    
+    const daysInMonth = new Date(targetYear, jsMonth + 1, 0).getDate();
+    const weeks = [];
+    let startDay = 1;
+
+    // 1日から月末までループして区切りを見つける
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateObj = new Date(targetYear, jsMonth, day);
+        const dayOfWeek = dateObj.getDay(); // 0:Sun, 1:Mon...
+        
+        let isWeekEnd = false;
+        // 基本は日曜日(0)で区切る
+        // 例外: 月初(1日)が日曜の場合は、その週には含めず翌週の日曜まで引っ張る(8日間)
+        if (dayOfWeek === 0) {
+            if (day === 1) isWeekEnd = false;
+            else isWeekEnd = true;
+        }
+        // 月末は強制区切り
+        if (day === daysInMonth) isWeekEnd = true;
+
+        if (isWeekEnd) {
+            weeks.push({
+                name: `第${weeks.length + 1}週 (${startDay}日～${day}日)`,
+                startDay: startDay,
+                endDay: day
+            });
+            startDay = day + 1;
+        }
+    }
+    return { weeks, daysInMonth, targetYear, jsMonth };
+};
+
+
 // UI Components
 const StatCard = ({ title, value, subValue, trend, icon: Icon, color, details }) => (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
@@ -243,7 +285,7 @@ function RobotSchoolDashboard() {
     }, [selectedCampusId, viewMode, selectedMonth, rawDataMap]);
 
     // ==========================================
-    // ★ 集計ロジック (週次カスタム対応版)
+    // ★ 集計ロジック
     // ==========================================
     const generateAllCampusesData = (targetCampuses, realEnrollmentList, realStatusList, realTransferList, targetYear) => {
         const dataMap = {};
@@ -338,16 +380,10 @@ function RobotSchoolDashboard() {
                     val.graduate = getCount(graduateCounts);
                 }
 
-                // --- 日次データ生成 (実際の日数に対応) ---
-                // 年度・月から実際の日付オブジェクトを生成して日数を計算
-                let targetYearForMonth = targetYear;
-                let targetMonthIndex = mIdx + 3; // 4月=0 → 3 (JS Date月)
-                if (targetMonthIndex > 11) {
-                    targetMonthIndex -= 12;
-                    targetYearForMonth += 1;
-                }
-                const daysInMonth = new Date(targetYearForMonth, targetMonthIndex + 1, 0).getDate();
+                // ★ 週構造と日数の取得
+                const { weeks, daysInMonth } = getWeeksStruct(targetYear, mIdx);
 
+                // --- 日次データ生成 ---
                 const daily = Array.from({ length: daysInMonth }, (_, dIdx) => {
                     const dayNum = dIdx + 1;
                     const getDayCount = (daysObj) => (daysObj[dayNum] || 0);
@@ -377,75 +413,40 @@ function RobotSchoolDashboard() {
                     };
                 });
 
-                // --- 週次データ生成 (カレンダーロジック) ---
-                const weekly = [];
-                let currentWeekData = { 
-                    enroll: 0, transferIn: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0,
-                    withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0
-                };
-                
-                daily.forEach((dayData, i) => {
-                    const dayNum = i + 1;
-                    // 各項目の加算
-                    currentWeekData.enroll += dayData.newEnrollments;
-                    currentWeekData.transferIn += dayData.transferIns;
-                    currentWeekData.withdraw += dayData.withdrawals;
-                    currentWeekData.recess += dayData.recesses;
-                    currentWeekData.return += dayData.returns;
-                    currentWeekData.transfer += dayData.transfers;
-                    currentWeekData.graduate += dayData.graduates;
+                // --- 週次データ生成 (定義された週期間に基づいて集計) ---
+                const weekly = weeks.map(week => {
+                    let wVal = { enroll: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0, transferIn: 0 };
                     
-                    currentWeekData.withdrawals_neg += dayData.withdrawals_neg;
-                    currentWeekData.recesses_neg += dayData.recesses_neg;
-                    currentWeekData.transfers_neg += dayData.transfers_neg;
-                    currentWeekData.graduates_neg += dayData.graduates_neg;
-
-                    // 週の区切り判定
-                    const dateObj = new Date(targetYearForMonth, targetMonthIndex, dayNum);
-                    const dayOfWeek = dateObj.getDay(); // 0:Sun, 1:Mon ... 6:Sat
-
-                    let isWeekEnd = false;
-                    // 基本: 日曜日(0)で週終わり
-                    // 例外: 月初(1日)が日曜日(0)の場合は、その週には含めず次の週(2日～8日)の終わりまで引っ張る... 
-                    // 要件: 「月初が日曜日の場合は、第1週に初日の日曜日を含めて8日間」
-                    // つまり、1日が日曜の場合、1日(日)では切らず、次の日曜日(8日)で切る。
-                    
-                    if (dayOfWeek === 0) {
-                        if (dayNum === 1) {
-                            // 1日が日曜 -> ここでは区切らない
-                            isWeekEnd = false;
-                        } else {
-                            // それ以外の日曜 -> 区切る
-                            isWeekEnd = true;
+                    // week.startDay から week.endDay までの日次データを合計
+                    for (let i = week.startDay - 1; i < week.endDay; i++) {
+                        if (daily[i]) {
+                            wVal.enroll += daily[i].newEnrollments;
+                            wVal.transferIn += daily[i].transferIns;
+                            wVal.withdraw += daily[i].withdrawals;
+                            wVal.recess += daily[i].recesses;
+                            wVal.return += daily[i].returns;
+                            wVal.transfer += daily[i].transfers;
+                            wVal.graduate += daily[i].graduates;
                         }
                     }
-                    // 月末は必ず区切る
-                    if (dayNum === daysInMonth) isWeekEnd = true;
 
-                    if (isWeekEnd) {
-                        weekly.push({
-                            name: `第${weekly.length + 1}週`,
-                            budgetRevenue: 0, actualRevenue: 0,
-                            newEnrollments: currentWeekData.enroll,
-                            transferIns: currentWeekData.transferIn,
-                            withdrawals: currentWeekData.withdraw,
-                            recesses: currentWeekData.recess,
-                            returns: currentWeekData.return,
-                            transfers: currentWeekData.transfer,
-                            graduates: currentWeekData.graduate,
-                            flyers: 0,
-                            totalStudents: currentStudents,
-                            withdrawals_neg: currentWeekData.withdrawals_neg,
-                            recesses_neg: currentWeekData.recesses_neg,
-                            transfers_neg: currentWeekData.transfers_neg,
-                            graduates_neg: currentWeekData.graduates_neg
-                        });
-                        // リセット
-                        currentWeekData = { 
-                            enroll: 0, transferIn: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0,
-                            withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0
-                        };
-                    }
+                    return {
+                        name: week.name, // "第1週 (1日～7日)"
+                        budgetRevenue: 0, actualRevenue: 0,
+                        newEnrollments: wVal.enroll,
+                        transferIns: wVal.transferIn,
+                        withdrawals: wVal.withdraw,
+                        recesses: wVal.recess,
+                        returns: wVal.return,
+                        transfers: wVal.transfer,
+                        graduates: wVal.graduate,
+                        flyers: 0,
+                        totalStudents: currentStudents,
+                        withdrawals_neg: -wVal.withdraw,
+                        recesses_neg: -wVal.recess,
+                        transfers_neg: -wVal.transfer,
+                        graduates_neg: -wVal.graduate
+                    };
                 });
 
                 const netChange = (val.enroll + val.transferIn) - (val.withdraw + val.transfer + val.graduate);
@@ -475,30 +476,8 @@ function RobotSchoolDashboard() {
 
         // 合計ロジック ('All')
         dataMap['All'] = MONTHS_LIST.map((month, idx) => {
-            // ベースとなる日数は、その月の日数（全校舎共通なので代表して計算）
-            let targetYearForMonth = targetYear;
-            let targetMonthIndex = idx + 3;
-            if (targetMonthIndex > 11) {
-                targetMonthIndex -= 12;
-                targetYearForMonth += 1;
-            }
-            const daysInMonth = new Date(targetYearForMonth, targetMonthIndex + 1, 0).getDate();
-
-            // 週数の計算（最初の校舎データがあればそれを使うのが確実だが、ない場合は再計算が必要。
-            // ここでは簡易的に、データがある最初の校舎の週構成をコピーする戦略をとる）
-            let sampleWeekly = [];
-            for (const c of targetCampuses) {
-                if (dataMap[c.id]?.[idx]?.weekly) {
-                    sampleWeekly = dataMap[c.id][idx].weekly;
-                    break;
-                }
-            }
-            // データが全くない場合用のダミー週数計算（表示エラー回避）
-            if (sampleWeekly.length === 0) {
-                // 最低限の枠だけ作る（中身は0）
-                // ※厳密にはカレンダー計算すべきだが、データ0なら表示影響なし
-                sampleWeekly = Array.from({length:4}, (_,i)=>({name:`第${i+1}週`}));
-            }
+            // 月ごとの週構造を取得
+            const { weeks, daysInMonth } = getWeeksStruct(targetYear, idx);
 
             const combined = {
                 name: month,
@@ -513,7 +492,7 @@ function RobotSchoolDashboard() {
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 })),
                 
-                weekly: sampleWeekly.map(w => ({
+                weekly: weeks.map(w => ({
                     name: w.name,
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
@@ -523,11 +502,9 @@ function RobotSchoolDashboard() {
             targetCampuses.forEach(campusObj => {
                 const d = dataMap[campusObj.id]?.[idx];
                 if (d) {
-                    // 月合計
                     Object.keys(combined).forEach(k => {
                         if (typeof combined[k] === 'number') combined[k] += d[k];
                     });
-                    // 日次合計
                     d.daily.forEach((day, i) => {
                         if (combined.daily[i]) {
                             Object.keys(day).forEach(k => {
@@ -535,7 +512,6 @@ function RobotSchoolDashboard() {
                             });
                         }
                     });
-                    // 週次合計
                     d.weekly.forEach((wk, i) => {
                         if (combined.weekly[i]) {
                             Object.keys(wk).forEach(k => {
