@@ -6,7 +6,7 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
 
 // ==========================================
-// ★ Firebase設定 (ここにご自身のAPIキーを設定してください)
+// ★ Firebase設定
 // ==========================================
 const FIREBASE_CONFIG = {
     apiKey: "AIzaSyCsgMN0SWCC1SvCDIakYBejTWlxwBmiwJk",
@@ -191,7 +191,7 @@ function RobotSchoolDashboard() {
     }, [selectedCampusId, viewMode, selectedMonth, rawDataMap]);
 
     // ==========================================
-    // ★ 集計ロジック (休会・復会を在庫変動から除外)
+    // ★ 集計ロジック
     // ==========================================
     const generateAllCampusesData = (targetCampuses, realEnrollmentList, realStatusList, realTransferList, targetYear) => {
         const dataMap = {};
@@ -243,7 +243,6 @@ function RobotSchoolDashboard() {
 
         const prevEnrollments = countTotalBefore(realEnrollmentList, targetYear);
         const prevTransferIns = countTotalBefore(realTransferList, targetYear);
-        // ★復会(prevReturns) は計算に含めない
         const prevWithdrawals = countTotalBefore(realStatusList, targetYear, "退会");
         const prevTransfers = countTotalBefore(realStatusList, targetYear, "転校");
         const prevGraduates = countTotalBefore(realStatusList, targetYear, "卒業");
@@ -270,7 +269,6 @@ function RobotSchoolDashboard() {
                 const pTransfer = prevTransfers[campusId] || 0;
                 const pGraduate = prevGraduates[campusId] || 0;
                 
-                // ★修正: 計算式 (入会+転入) - (退会+転出+卒業) ※休会・復会は無視
                 currentStudents = (pEnroll + pTransferIn) - (pWithdraw + pTransfer + pGraduate);
             }
 
@@ -311,7 +309,7 @@ function RobotSchoolDashboard() {
                         transfers: dTransfer,
                         graduates: dGraduate,
                         flyers: 0,
-                        totalStudents: currentStudents, // 一旦セット
+                        totalStudents: currentStudents,
                         withdrawals_neg: -dWithdraw,
                         recesses_neg: hasRealData ? -getDayCount(getDays(recessCounts)) : 0,
                         transfers_neg: -dTransfer,
@@ -351,7 +349,6 @@ function RobotSchoolDashboard() {
                     };
                 });
 
-                // ★修正: 月次の純増減計算から復会(return)と休会(recess)を除外
                 const netChange = (val.enroll + val.transferIn) - (val.withdraw + val.transfer + val.graduate);
                 currentStudents += netChange;
 
@@ -615,7 +612,8 @@ function RobotSchoolDashboard() {
                                         <BarChart data={displayData} stackOffset="sign">
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                             <XAxis dataKey="name" />
-                                            <YAxis />
+                                            {/* ★修正箇所: paddingを追加して余白を確保 */}
+                                            <YAxis padding={{ top: 20, bottom: 20 }} />
                                             <Tooltip />
                                             <Legend />
                                             <ReferenceLine y={0} stroke="#000" />
