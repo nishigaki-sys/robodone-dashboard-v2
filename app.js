@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine } from "recharts";
-import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save } from "lucide-react";
+import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw, HardDrive } from "lucide-react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
 
 // ==========================================
 // ★ Firebase設定
@@ -20,6 +20,13 @@ const FIREBASE_CONFIG = {
 const DEFAULT_CAMPUS_LIST = [];
 const MONTHS_LIST = ['4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月'];
 const YEARS_LIST = [2022, 2023, 2024, 2025, 2026];
+const CACHE_KEYS = {
+    CAMPUSES: 'dash_campuses',
+    ENROLLMENTS: 'dash_enrollments',
+    STATUS: 'dash_status',
+    TRANSFERS: 'dash_transfers',
+    LAST_UPDATED: 'dash_last_updated'
+};
 
 // Firebase Init
 let db = null;
@@ -42,7 +49,11 @@ const normalizeString = (str) => {
 
 const parseDate = (dateValue) => {
     if (!dateValue) return null;
-    if (typeof dateValue.toDate === 'function') return dateValue.toDate();
+    // Firestore Timestamp
+    if (dateValue && typeof dateValue.toDate === 'function') return dateValue.toDate();
+    // Firestore Timestamp saved as JSON object {seconds:..., nanoseconds:...}
+    if (dateValue && dateValue.seconds) return new Date(dateValue.seconds * 1000);
+    // String or Number
     const d = new Date(dateValue);
     return isNaN(d.getTime()) ? null : d;
 };
@@ -106,7 +117,11 @@ function RobotSchoolDashboard() {
     const [newCampusName, setNewCampusName] = useState("");
     const [newCampusId, setNewCampusId] = useState("");
     const [newCampusSheetName, setNewCampusSheetName] = useState("");
+    
+    // データ同期状態
     const [isSyncing, setIsSyncing] = useState(false);
+    const [lastUpdated, setLastUpdated] = useState(null);
+    const [isUsingCache, setIsUsingCache] = useState(false);
 
     const [planData, setPlanData] = useState(createInitialPlanData());
     const [isSavingPlan, setIsSavingPlan] = useState(false);
@@ -127,31 +142,95 @@ function RobotSchoolDashboard() {
         return campus ? campus.name : selectedCampusId;
     }, [selectedCampusId, campusList]);
 
-    // Sync Data
-    useEffect(() => {
+    // ==========================================
+    // Data Loading & Caching Logic
+    // ==========================================
+
+    // ローカルストレージからロード
+    const loadFromCache = () => {
+        try {
+            const cachedCampuses = localStorage.getItem(CACHE_KEYS.CAMPUSES);
+            const cachedEnroll = localStorage.getItem(CACHE_KEYS.ENROLLMENTS);
+            const cachedStatus = localStorage.getItem(CACHE_KEYS.STATUS);
+            const cachedTransfers = localStorage.getItem(CACHE_KEYS.TRANSFERS);
+            const cachedTime = localStorage.getItem(CACHE_KEYS.LAST_UPDATED);
+
+            if (cachedCampuses && cachedEnroll && cachedStatus && cachedTransfers) {
+                setCampusList(JSON.parse(cachedCampuses));
+                setRealEnrollments(JSON.parse(cachedEnroll));
+                setRealStatusChanges(JSON.parse(cachedStatus));
+                setRealTransfers(JSON.parse(cachedTransfers));
+                if (cachedTime) setLastUpdated(new Date(cachedTime));
+                setIsUsingCache(true);
+                return true; // Cache hit
+            }
+        } catch (e) {
+            console.error("Cache load error:", e);
+        }
+        return false; // Cache miss
+    };
+
+    // Firebaseから強制取得してキャッシュ保存
+    const fetchFromFirebaseAndCache = async () => {
         if (!isFirebaseInitialized || !db) return;
         setIsSyncing(true);
-        const q = query(collection(db, "campuses"), orderBy("createdAt"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const campuses = snapshot.docs.map(doc => ({
-                id: doc.id,
-                name: doc.data().name || doc.id,
-                sheetName: doc.data().sheetName || doc.data().name || doc.id
-            }));
+        setErrorMsg(null);
+
+        try {
+            // Promise.allで並列取得
+            const [campusSnap, enrollSnap, statusSnap, transferSnap] = await Promise.all([
+                getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
+                getDocs(collection(db, "enrollments")),
+                getDocs(collection(db, "status_changes")),
+                getDocs(collection(db, "transfers"))
+            ]);
+
+            const campuses = campusSnap.docs.map(doc => ({ id: doc.id, name: doc.data().name || doc.id, sheetName: doc.data().sheetName || doc.data().name || doc.id }));
+            const enrollments = enrollSnap.docs.map(d => ({id:d.id, ...d.data()}));
+            const status = statusSnap.docs.map(d => ({id:d.id, ...d.data()}));
+            const transfers = transferSnap.docs.map(d => ({id:d.id, ...d.data()}));
+            const now = new Date();
+
+            // State更新
             setCampusList(campuses);
+            setRealEnrollments(enrollments);
+            setRealStatusChanges(status);
+            setRealTransfers(transfers);
+            setLastUpdated(now);
+            setIsUsingCache(false);
+
+            // キャッシュ保存 (JSON文字列化)
+            localStorage.setItem(CACHE_KEYS.CAMPUSES, JSON.stringify(campuses));
+            localStorage.setItem(CACHE_KEYS.ENROLLMENTS, JSON.stringify(enrollments));
+            localStorage.setItem(CACHE_KEYS.STATUS, JSON.stringify(status));
+            localStorage.setItem(CACHE_KEYS.TRANSFERS, JSON.stringify(transfers));
+            localStorage.setItem(CACHE_KEYS.LAST_UPDATED, now.toISOString());
+
+        } catch (e) {
+            console.error("Firebase sync error:", e);
+            setErrorMsg("データの同期に失敗しました: " + e.message);
+        } finally {
             setIsSyncing(false);
-        }, (error) => { console.error(error); setIsSyncing(false); });
-        return () => unsubscribe();
-    }, []);
+        }
+    };
 
+    // 初回ロード時: キャッシュがあればそれを使う、なければFirebaseへ
     useEffect(() => {
-        if (!isFirebaseInitialized || !db) return;
-        const unsubEnroll = onSnapshot(query(collection(db, "enrollments")), (snap) => setRealEnrollments(snap.docs.map(d => ({id:d.id, ...d.data()}))));
-        const unsubStatus = onSnapshot(query(collection(db, "status_changes")), (snap) => setRealStatusChanges(snap.docs.map(d => ({id:d.id, ...d.data()}))));
-        const unsubTransfer = onSnapshot(query(collection(db, "transfers")), (snap) => setRealTransfers(snap.docs.map(d => ({id:d.id, ...d.data()}))));
-        return () => { unsubEnroll(); unsubStatus(); unsubTransfer(); };
+        const initData = async () => {
+            setIsLoading(true);
+            const loaded = loadFromCache();
+            if (!loaded) {
+                // キャッシュがない場合のみFirebaseに取りに行く
+                await fetchFromFirebaseAndCache();
+            }
+            setIsLoading(false);
+        };
+        initData();
     }, []);
 
+    // 計画データの取得 (ここはキャッシュせず都度取得、または必要に応じてキャッシュ可)
+    // 今回は計画データは編集頻度が高い可能性があるため、画面切り替え時に取得する形を維持しつつ
+    // onSnapshotではなくgetDocに変更
     useEffect(() => {
         const fetchPlan = async () => {
             if (selectedCampusId === 'All' || !isFirebaseInitialized || !db) {
@@ -167,10 +246,11 @@ function RobotSchoolDashboard() {
         fetchPlan();
     }, [selectedCampusId, selectedYear]);
 
+    // データを集計マップに変換
     useEffect(() => {
         const generateData = async () => {
             setIsLoading(true);
-            await new Promise(resolve => setTimeout(resolve, 300));
+            await new Promise(resolve => setTimeout(resolve, 100)); // UIブロック回避
             const map = generateAllCampusesData(campusList, realEnrollments, realStatusChanges, realTransfers, selectedYear);
             setRawDataMap(map);
             setIsLoading(false);
@@ -178,6 +258,7 @@ function RobotSchoolDashboard() {
         generateData();
     }, [campusList, realEnrollments, realStatusChanges, realTransfers, selectedYear]);
 
+    // 表示データの切り出し
     useEffect(() => {
         if (rawDataMap) {
             const campusData = rawDataMap[selectedCampusId] || [];
@@ -378,20 +459,17 @@ function RobotSchoolDashboard() {
                 budgetRevenue: 0, actualRevenue: 0,
                 newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0,
                 totalStudents: 0, flyers: 0,
-                // ★修正: ここにマイナス項目の初期化を追加
                 withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0,
                 
                 daily: Array.from({ length: 30 }, (_, i) => ({ 
                     name: `${i+1}日`, 
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
-                    // ★修正: 日次データにもマイナス項目を追加
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 })),
                 
                 weekly: Array.from({ length: 4 }, (_, i) => ({ 
                     name: `第${i+1}週`, 
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
-                    // ★修正: 週次データにもマイナス項目を追加
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 }))
             };
@@ -442,15 +520,25 @@ function RobotSchoolDashboard() {
         const sheetName = newCampusSheetName.trim() || name;
         if (!id || !name) return alert("校舎IDと校舎名は必須です。");
         if (campusList.some(c => c.id === id)) return alert("ID重複");
-        if (isFirebaseInitialized && db) await setDoc(doc(db, "campuses", id), { id, name, sheetName, createdAt: serverTimestamp() });
-        setNewCampusId(""); setNewCampusName(""); setNewCampusSheetName("");
+        if (isFirebaseInitialized && db) {
+            try {
+                await setDoc(doc(db, "campuses", id), { id, name, sheetName, createdAt: serverTimestamp() });
+                // キャンパス追加時は強制リフレッシュ
+                await fetchFromFirebaseAndCache();
+                setNewCampusId(""); setNewCampusName(""); setNewCampusSheetName("");
+            } catch(e) { alert("登録エラー: " + e.message); }
+        }
     };
 
     const handleDeleteCampus = async (targetId, targetName) => {
         if (!confirm(`${targetName} を削除しますか？`)) return;
         if (isFirebaseInitialized && db) {
-            await deleteDoc(doc(db, "campuses", targetId));
-            if (selectedCampusId === targetId) setSelectedCampusId('All');
+            try {
+                await deleteDoc(doc(db, "campuses", targetId));
+                // キャンパス削除時は強制リフレッシュ
+                await fetchFromFirebaseAndCache();
+                if (selectedCampusId === targetId) setSelectedCampusId('All');
+            } catch(e) { alert("削除エラー: " + e.message); }
         }
     };
 
@@ -502,9 +590,9 @@ function RobotSchoolDashboard() {
                 </nav>
                 <div className="p-4 border-t border-slate-800 text-xs text-slate-400 space-y-2">
                     <div className="flex items-center justify-between">
-                        <div className="flex items-center"><Database className={`w-3 h-3 mr-1 ${isFirebaseInitialized ? 'text-emerald-400' : 'text-slate-500'}`} />{isFirebaseInitialized ? 'Firebase Connected' : 'Local Mode'}</div>
-                        {isSyncing && <Wifi className="w-3 h-3 animate-spin text-blue-400" />}
+                        <div className="flex items-center"><Database className={`w-3 h-3 mr-1 ${isFirebaseInitialized ? 'text-emerald-400' : 'text-slate-500'}`} />{isFirebaseInitialized ? (isUsingCache ? 'Local Cache' : 'Firebase') : 'Local Mode'}</div>
                     </div>
+                    {lastUpdated && <div className="text-slate-500">更新: {lastUpdated.toLocaleTimeString()}</div>}
                     <div className="flex items-center"><MapPin className="w-3 h-3 mr-1" />{selectedCampusName}</div>
                     <div className="flex items-center"><Calendar className="w-3 h-3 mr-1" />{selectedYear}年度</div>
                 </div>
@@ -541,6 +629,15 @@ function RobotSchoolDashboard() {
                                     <MapPin className="w-3 h-3 text-slate-500 mr-2" />
                                     <select value={selectedCampusId} onChange={(e) => setSelectedCampusId(e.target.value)} className="bg-transparent border-none text-sm font-medium text-slate-700 focus:ring-0 cursor-pointer py-1"><option value="All">全校舎 (合計)</option><option disabled>──────────</option>{campusList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
                                 </div>
+                                {/* ★ データ同期ボタン */}
+                                <button 
+                                    onClick={fetchFromFirebaseAndCache} 
+                                    disabled={isSyncing}
+                                    className={`p-2 rounded-lg border border-slate-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-slate-50 text-slate-600'}`}
+                                    title="データを最新の状態に更新"
+                                >
+                                    <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                                </button>
                             </>
                         )}
                     </div>
@@ -622,7 +719,6 @@ function RobotSchoolDashboard() {
                                         <BarChart data={displayData} stackOffset="sign">
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                             <XAxis dataKey="name" />
-                                            {/* ★修正: paddingとdomain='auto'で範囲調整 */}
                                             <YAxis padding={{ top: 20, bottom: 20 }} domain={['auto', 'auto']} />
                                             <Tooltip />
                                             <Legend />
