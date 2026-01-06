@@ -264,11 +264,9 @@ function RobotSchoolDashboard() {
             if (hasRealData) {
                 const pEnroll = prevEnrollments[campusId] || 0;
                 const pTransferIn = prevTransferIns[campusId] || 0;
-                
                 const pWithdraw = prevWithdrawals[campusId] || 0;
                 const pTransfer = prevTransfers[campusId] || 0;
                 const pGraduate = prevGraduates[campusId] || 0;
-                
                 currentStudents = (pEnroll + pTransferIn) - (pWithdraw + pTransfer + pGraduate);
             }
 
@@ -380,8 +378,22 @@ function RobotSchoolDashboard() {
                 budgetRevenue: 0, actualRevenue: 0,
                 newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0,
                 totalStudents: 0, flyers: 0,
-                daily: Array.from({ length: 30 }, (_, i) => ({ name: `${i+1}日`, newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0 })),
-                weekly: Array.from({ length: 4 }, (_, i) => ({ name: `第${i+1}週`, newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0 }))
+                // ★修正: ここにマイナス項目の初期化を追加
+                withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0,
+                
+                daily: Array.from({ length: 30 }, (_, i) => ({ 
+                    name: `${i+1}日`, 
+                    newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
+                    // ★修正: 日次データにもマイナス項目を追加
+                    withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
+                })),
+                
+                weekly: Array.from({ length: 4 }, (_, i) => ({ 
+                    name: `第${i+1}週`, 
+                    newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
+                    // ★修正: 週次データにもマイナス項目を追加
+                    withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
+                }))
             };
 
             targetCampuses.forEach(campusObj => {
@@ -610,7 +622,7 @@ function RobotSchoolDashboard() {
                                         <BarChart data={displayData} stackOffset="sign">
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                             <XAxis dataKey="name" />
-                                            {/* ★修正: paddingを追加しつつ、domain='auto'で範囲自動調整を強制 */}
+                                            {/* ★修正: paddingとdomain='auto'で範囲調整 */}
                                             <YAxis padding={{ top: 20, bottom: 20 }} domain={['auto', 'auto']} />
                                             <Tooltip />
                                             <Legend />
