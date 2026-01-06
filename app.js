@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine } from "recharts";
-import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw, Sun, Cloud, CloudRain, Snowflake, PenTool, ChevronDown, ChevronRight, Building, X } from "lucide-react";
+import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw, Sun, Cloud, CloudRain, Snowflake, PenTool, ChevronDown, ChevronRight, Building, X, Ban } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
 
@@ -652,11 +652,13 @@ function RobotSchoolDashboard() {
 
         const existingReport = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dateStr);
         if (existingReport) {
+            // 休校かどうかで初期値を分岐
+            const isClosed = existingReport.weather === 'closed';
             setDailyReportInput({
                 weather: existingReport.weather || 'sunny',
-                touchTry: existingReport.touchTry || 0,
-                flyers: existingReport.flyers || 0,
-                trialLessons: existingReport.trialLessons || 0
+                touchTry: isClosed ? 0 : (existingReport.touchTry || 0),
+                flyers: isClosed ? 0 : (existingReport.flyers || 0),
+                trialLessons: isClosed ? 0 : (existingReport.trialLessons || 0)
             });
         } else {
             setDailyReportInput({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
@@ -665,6 +667,7 @@ function RobotSchoolDashboard() {
         setIsInputModalOpen(true);
     };
 
+    // モーダル内での保存
     const handleSaveDailyReport = async () => {
         if (selectedCampusId === 'All') return;
         setIsSavingReport(true);
@@ -681,16 +684,22 @@ function RobotSchoolDashboard() {
         } catch (e) { alert("保存失敗: " + e.message); } finally { setIsSavingReport(false); }
     };
 
-    // ★修正: タブ切り替え時に校舎IDをリセットせず、指定がない場合は維持する
-    const handleMenuClick = (tab, campusId = null) => {
+    const handleMenuClick = (tab, campusId = 'All') => {
         setActiveTab(tab);
-        if (campusId) {
-            setSelectedCampusId(campusId);
-        }
+        setSelectedCampusId(campusId);
     };
 
     const toggleCampusMenu = (campusId) => {
         setExpandedCampusId(expandedCampusId === campusId ? null : campusId);
+    };
+
+    // 天気ボタンクリック時のハンドラ (休校時の数値リセット制御)
+    const handleWeatherSelect = (weatherId) => {
+        if (weatherId === 'closed') {
+            setDailyReportInput({ ...dailyReportInput, weather: weatherId, flyers: 0, touchTry: 0, trialLessons: 0 });
+        } else {
+            setDailyReportInput({ ...dailyReportInput, weather: weatherId });
+        }
     };
 
     const renderCalendar = () => {
@@ -709,7 +718,8 @@ function RobotSchoolDashboard() {
             sunny: { i: Sun, c: 'text-orange-500' },
             cloudy: { i: Cloud, c: 'text-gray-500' },
             rainy: { i: CloudRain, c: 'text-blue-500' },
-            snowy: { i: Snowflake, c: 'text-cyan-500' }
+            snowy: { i: Snowflake, c: 'text-cyan-500' },
+            closed: { i: Ban, c: 'text-rose-500' } // 休校アイコン定義
         };
 
         const blanks = Array.from({ length: firstDay }, (_, i) => <div key={`blank-${i}`} className="h-24 bg-slate-50 border border-slate-100"></div>);
@@ -719,6 +729,7 @@ function RobotSchoolDashboard() {
             const dateStr = `${targetYear}-${('0'+(jsMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
             const report = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dateStr);
             const isToday = dateStr === formatDateStr(new Date());
+            const isClosed = report && report.weather === 'closed';
             
             const WeatherInfo = report && report.weather ? weatherMap[report.weather] : null;
             const WeatherIcon = WeatherInfo ? WeatherInfo.i : null;
@@ -727,7 +738,7 @@ function RobotSchoolDashboard() {
                 <div 
                     key={day} 
                     onClick={() => handleDateClick(day)}
-                    className={`h-24 border border-slate-200 p-1.5 cursor-pointer hover:bg-blue-50 transition-colors relative flex flex-col ${isToday ? 'bg-blue-50/50' : 'bg-white'}`}
+                    className={`h-24 border border-slate-200 p-1.5 cursor-pointer hover:bg-blue-50 transition-colors relative flex flex-col ${isToday ? 'bg-blue-50/50' : isClosed ? 'bg-slate-100' : 'bg-white'}`}
                 >
                     <div className="flex justify-between items-start mb-1">
                         <span className={`text-sm font-bold ${isToday ? 'text-blue-600' : 'text-slate-700'}`}>
@@ -740,9 +751,15 @@ function RobotSchoolDashboard() {
                     
                     {report ? (
                         <div className="flex-1 flex flex-col justify-end gap-0.5 overflow-hidden">
-                            <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>門配</span><span className="font-bold text-slate-700">{report.flyers}</span></div>
-                            <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>T&T</span><span className="font-bold text-slate-700">{report.touchTry}</span></div>
-                            <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>体験</span><span className="font-bold text-slate-700">{report.trialLessons}</span></div>
+                            {isClosed ? (
+                                <div className="flex-1 flex items-center justify-center text-xs font-bold text-slate-400">休校</div>
+                            ) : (
+                                <>
+                                    <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>門配</span><span className="font-bold text-slate-700">{report.flyers}</span></div>
+                                    <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>T&T</span><span className="font-bold text-slate-700">{report.touchTry}</span></div>
+                                    <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>体験</span><span className="font-bold text-slate-700">{report.trialLessons}</span></div>
+                                </>
+                            )}
                         </div>
                     ) : (
                         <div className="flex-1 flex items-center justify-center text-slate-300">
@@ -870,7 +887,6 @@ function RobotSchoolDashboard() {
                                 )}
                             </>
                         )}
-                        {/* ★復元された校舎切り替えプルダウン★ */}
                         <div className="flex items-center bg-slate-100 rounded-lg px-3 py-1 border border-slate-200">
                             <MapPin className="w-3 h-3 text-slate-500 mr-2" />
                             <select value={selectedCampusId} onChange={(e) => setSelectedCampusId(e.target.value)} className="bg-transparent border-none text-sm font-medium text-slate-700 focus:ring-0 cursor-pointer py-1"><option value="All">全校舎 (合計)</option><option disabled>──────────</option>{campusList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
@@ -1046,19 +1062,19 @@ function RobotSchoolDashboard() {
                             <div className="p-6 space-y-6">
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">本日の天気</label>
-                                    <div className="grid grid-cols-4 gap-2">
-                                        {[{id:'sunny',l:'晴',i:Sun,c:'text-orange-500'},{id:'cloudy',l:'曇',i:Cloud,c:'text-gray-500'},{id:'rainy',l:'雨',i:CloudRain,c:'text-blue-500'},{id:'snowy',l:'雪',i:Snowflake,c:'text-cyan-500'}].map(w=> (
-                                            <button key={w.id} onClick={()=>setDailyReportInput({...dailyReportInput,weather:w.id})} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${dailyReportInput.weather===w.id?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'border-slate-200 hover:bg-slate-50'}`}>
-                                                <w.i className={`mb-1 w-6 h-6 ${w.c}`} />
+                                    <div className="grid grid-cols-5 gap-2">
+                                        {[{id:'sunny',l:'晴',i:Sun,c:'text-orange-500'},{id:'cloudy',l:'曇',i:Cloud,c:'text-gray-500'},{id:'rainy',l:'雨',i:CloudRain,c:'text-blue-500'},{id:'snowy',l:'雪',i:Snowflake,c:'text-cyan-500'},{id:'closed',l:'休校',i:Ban,c:'text-rose-500'}].map(w=> (
+                                            <button key={w.id} onClick={()=>handleWeatherSelect(w.id)} className={`flex flex-col items-center justify-center p-2 rounded-lg border transition-all ${dailyReportInput.weather===w.id?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'border-slate-200 hover:bg-slate-50'}`}>
+                                                <w.i className={`mb-1 w-5 h-5 ${w.c}`} />
                                                 <span className="text-xs font-bold">{w.l}</span>
                                             </button>
                                         ))}
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">門配 (枚)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
-                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">T&T (件)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
-                                    <div className="col-span-2"><label className="block text-xs font-bold text-slate-500 mb-1">体験会実施 (回)</label><input type="number" min="0" className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={dailyReportInput.trialLessons} onChange={e=>setDailyReportInput({...dailyReportInput,trialLessons:Number(e.target.value)})}/></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">門配 (枚)</label><input type="number" min="0" disabled={dailyReportInput.weather==='closed'} className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-100 disabled:text-slate-400" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">T&T (件)</label><input type="number" min="0" disabled={dailyReportInput.weather==='closed'} className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-100 disabled:text-slate-400" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
+                                    <div className="col-span-2"><label className="block text-xs font-bold text-slate-500 mb-1">体験会実施 (回)</label><input type="number" min="0" disabled={dailyReportInput.weather==='closed'} className="border rounded-lg w-full p-2 text-right font-mono text-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-100 disabled:text-slate-400" value={dailyReportInput.trialLessons} onChange={e=>setDailyReportInput({...dailyReportInput,trialLessons:Number(e.target.value)})}/></div>
                                 </div>
                                 <button onClick={handleSaveDailyReport} disabled={isSavingReport} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition-all flex items-center justify-center disabled:opacity-50">
                                     {isSavingReport ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>} 日報を保存
