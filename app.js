@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine } from "recharts";
-import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw, HardDrive } from "lucide-react";
+import { LayoutDashboard, Users, Megaphone, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, DollarSign, Activity, Loader2, AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, Wifi, FileText, Save, RefreshCw } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
 
@@ -49,11 +49,8 @@ const normalizeString = (str) => {
 
 const parseDate = (dateValue) => {
     if (!dateValue) return null;
-    // Firestore Timestamp
     if (dateValue && typeof dateValue.toDate === 'function') return dateValue.toDate();
-    // Firestore Timestamp saved as JSON object {seconds:..., nanoseconds:...}
     if (dateValue && dateValue.seconds) return new Date(dateValue.seconds * 1000);
-    // String or Number
     const d = new Date(dateValue);
     return isNaN(d.getTime()) ? null : d;
 };
@@ -118,7 +115,6 @@ function RobotSchoolDashboard() {
     const [newCampusId, setNewCampusId] = useState("");
     const [newCampusSheetName, setNewCampusSheetName] = useState("");
     
-    // データ同期状態
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [isUsingCache, setIsUsingCache] = useState(false);
@@ -142,11 +138,7 @@ function RobotSchoolDashboard() {
         return campus ? campus.name : selectedCampusId;
     }, [selectedCampusId, campusList]);
 
-    // ==========================================
-    // Data Loading & Caching Logic
-    // ==========================================
-
-    // ローカルストレージからロード
+    // Cache logic
     const loadFromCache = () => {
         try {
             const cachedCampuses = localStorage.getItem(CACHE_KEYS.CAMPUSES);
@@ -162,22 +154,16 @@ function RobotSchoolDashboard() {
                 setRealTransfers(JSON.parse(cachedTransfers));
                 if (cachedTime) setLastUpdated(new Date(cachedTime));
                 setIsUsingCache(true);
-                return true; // Cache hit
+                return true;
             }
-        } catch (e) {
-            console.error("Cache load error:", e);
-        }
-        return false; // Cache miss
+        } catch (e) { console.error("Cache error", e); }
+        return false;
     };
 
-    // Firebaseから強制取得してキャッシュ保存
     const fetchFromFirebaseAndCache = async () => {
         if (!isFirebaseInitialized || !db) return;
         setIsSyncing(true);
-        setErrorMsg(null);
-
         try {
-            // Promise.allで並列取得
             const [campusSnap, enrollSnap, statusSnap, transferSnap] = await Promise.all([
                 getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
                 getDocs(collection(db, "enrollments")),
@@ -191,7 +177,6 @@ function RobotSchoolDashboard() {
             const transfers = transferSnap.docs.map(d => ({id:d.id, ...d.data()}));
             const now = new Date();
 
-            // State更新
             setCampusList(campuses);
             setRealEnrollments(enrollments);
             setRealStatusChanges(status);
@@ -199,38 +184,26 @@ function RobotSchoolDashboard() {
             setLastUpdated(now);
             setIsUsingCache(false);
 
-            // キャッシュ保存 (JSON文字列化)
             localStorage.setItem(CACHE_KEYS.CAMPUSES, JSON.stringify(campuses));
             localStorage.setItem(CACHE_KEYS.ENROLLMENTS, JSON.stringify(enrollments));
             localStorage.setItem(CACHE_KEYS.STATUS, JSON.stringify(status));
             localStorage.setItem(CACHE_KEYS.TRANSFERS, JSON.stringify(transfers));
             localStorage.setItem(CACHE_KEYS.LAST_UPDATED, now.toISOString());
-
         } catch (e) {
-            console.error("Firebase sync error:", e);
-            setErrorMsg("データの同期に失敗しました: " + e.message);
-        } finally {
-            setIsSyncing(false);
-        }
+            console.error(e);
+            setErrorMsg("同期エラー: " + e.message);
+        } finally { setIsSyncing(false); }
     };
 
-    // 初回ロード時: キャッシュがあればそれを使う、なければFirebaseへ
     useEffect(() => {
-        const initData = async () => {
+        const init = async () => {
             setIsLoading(true);
-            const loaded = loadFromCache();
-            if (!loaded) {
-                // キャッシュがない場合のみFirebaseに取りに行く
-                await fetchFromFirebaseAndCache();
-            }
+            if (!loadFromCache()) await fetchFromFirebaseAndCache();
             setIsLoading(false);
         };
-        initData();
+        init();
     }, []);
 
-    // 計画データの取得 (ここはキャッシュせず都度取得、または必要に応じてキャッシュ可)
-    // 今回は計画データは編集頻度が高い可能性があるため、画面切り替え時に取得する形を維持しつつ
-    // onSnapshotではなくgetDocに変更
     useEffect(() => {
         const fetchPlan = async () => {
             if (selectedCampusId === 'All' || !isFirebaseInitialized || !db) {
@@ -246,11 +219,10 @@ function RobotSchoolDashboard() {
         fetchPlan();
     }, [selectedCampusId, selectedYear]);
 
-    // データを集計マップに変換
     useEffect(() => {
         const generateData = async () => {
             setIsLoading(true);
-            await new Promise(resolve => setTimeout(resolve, 100)); // UIブロック回避
+            await new Promise(resolve => setTimeout(resolve, 100));
             const map = generateAllCampusesData(campusList, realEnrollments, realStatusChanges, realTransfers, selectedYear);
             setRawDataMap(map);
             setIsLoading(false);
@@ -258,7 +230,6 @@ function RobotSchoolDashboard() {
         generateData();
     }, [campusList, realEnrollments, realStatusChanges, realTransfers, selectedYear]);
 
-    // 表示データの切り出し
     useEffect(() => {
         if (rawDataMap) {
             const campusData = rawDataMap[selectedCampusId] || [];
@@ -272,7 +243,7 @@ function RobotSchoolDashboard() {
     }, [selectedCampusId, viewMode, selectedMonth, rawDataMap]);
 
     // ==========================================
-    // ★ 集計ロジック
+    // ★ 集計ロジック (週次カスタム対応版)
     // ==========================================
     const generateAllCampusesData = (targetCampuses, realEnrollmentList, realStatusList, realTransferList, targetYear) => {
         const dataMap = {};
@@ -351,9 +322,9 @@ function RobotSchoolDashboard() {
                 currentStudents = (pEnroll + pTransferIn) - (pWithdraw + pTransfer + pGraduate);
             }
 
-            dataMap[campusId] = MONTHS_LIST.map((month, idx) => {
-                const getCount = (countsObj) => (countsObj[campusId] && countsObj[campusId][idx]) ? countsObj[campusId][idx].total : 0;
-                const getDays = (countsObj) => (countsObj[campusId] && countsObj[campusId][idx]) ? countsObj[campusId][idx].days : {};
+            dataMap[campusId] = MONTHS_LIST.map((month, mIdx) => {
+                const getCount = (countsObj) => (countsObj[campusId] && countsObj[campusId][mIdx]) ? countsObj[campusId][mIdx].total : 0;
+                const getDays = (countsObj) => (countsObj[campusId] && countsObj[campusId][mIdx]) ? countsObj[campusId][mIdx].days : {};
 
                 let val = { enroll: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0, transferIn: 0 };
 
@@ -367,7 +338,17 @@ function RobotSchoolDashboard() {
                     val.graduate = getCount(graduateCounts);
                 }
 
-                const daily = Array.from({ length: 30 }, (_, dIdx) => {
+                // --- 日次データ生成 (実際の日数に対応) ---
+                // 年度・月から実際の日付オブジェクトを生成して日数を計算
+                let targetYearForMonth = targetYear;
+                let targetMonthIndex = mIdx + 3; // 4月=0 → 3 (JS Date月)
+                if (targetMonthIndex > 11) {
+                    targetMonthIndex -= 12;
+                    targetYearForMonth += 1;
+                }
+                const daysInMonth = new Date(targetYearForMonth, targetMonthIndex + 1, 0).getDate();
+
+                const daily = Array.from({ length: daysInMonth }, (_, dIdx) => {
                     const dayNum = dIdx + 1;
                     const getDayCount = (daysObj) => (daysObj[dayNum] || 0);
                     
@@ -388,7 +369,7 @@ function RobotSchoolDashboard() {
                         transfers: dTransfer,
                         graduates: dGraduate,
                         flyers: 0,
-                        totalStudents: currentStudents,
+                        totalStudents: currentStudents, 
                         withdrawals_neg: -dWithdraw,
                         recesses_neg: hasRealData ? -getDayCount(getDays(recessCounts)) : 0,
                         transfers_neg: -dTransfer,
@@ -396,36 +377,75 @@ function RobotSchoolDashboard() {
                     };
                 });
 
-                const weekly = Array.from({ length: 4 }, (_, wIdx) => {
-                    let wVal = { enroll: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0, transferIn: 0 };
-                    const startDay = wIdx * 7 + 1;
-                    const endDay = wIdx === 3 ? 31 : (wIdx + 1) * 7;
-                    for (let i = startDay - 1; i < endDay && i < 30; i++) {
-                        wVal.enroll += daily[i].newEnrollments;
-                        wVal.transferIn += daily[i].transferIns;
-                        wVal.withdraw += daily[i].withdrawals;
-                        wVal.recess += daily[i].recesses;
-                        wVal.return += daily[i].returns;
-                        wVal.transfer += daily[i].transfers;
-                        wVal.graduate += daily[i].graduates;
+                // --- 週次データ生成 (カレンダーロジック) ---
+                const weekly = [];
+                let currentWeekData = { 
+                    enroll: 0, transferIn: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0,
+                    withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0
+                };
+                
+                daily.forEach((dayData, i) => {
+                    const dayNum = i + 1;
+                    // 各項目の加算
+                    currentWeekData.enroll += dayData.newEnrollments;
+                    currentWeekData.transferIn += dayData.transferIns;
+                    currentWeekData.withdraw += dayData.withdrawals;
+                    currentWeekData.recess += dayData.recesses;
+                    currentWeekData.return += dayData.returns;
+                    currentWeekData.transfer += dayData.transfers;
+                    currentWeekData.graduate += dayData.graduates;
+                    
+                    currentWeekData.withdrawals_neg += dayData.withdrawals_neg;
+                    currentWeekData.recesses_neg += dayData.recesses_neg;
+                    currentWeekData.transfers_neg += dayData.transfers_neg;
+                    currentWeekData.graduates_neg += dayData.graduates_neg;
+
+                    // 週の区切り判定
+                    const dateObj = new Date(targetYearForMonth, targetMonthIndex, dayNum);
+                    const dayOfWeek = dateObj.getDay(); // 0:Sun, 1:Mon ... 6:Sat
+
+                    let isWeekEnd = false;
+                    // 基本: 日曜日(0)で週終わり
+                    // 例外: 月初(1日)が日曜日(0)の場合は、その週には含めず次の週(2日～8日)の終わりまで引っ張る... 
+                    // 要件: 「月初が日曜日の場合は、第1週に初日の日曜日を含めて8日間」
+                    // つまり、1日が日曜の場合、1日(日)では切らず、次の日曜日(8日)で切る。
+                    
+                    if (dayOfWeek === 0) {
+                        if (dayNum === 1) {
+                            // 1日が日曜 -> ここでは区切らない
+                            isWeekEnd = false;
+                        } else {
+                            // それ以外の日曜 -> 区切る
+                            isWeekEnd = true;
+                        }
                     }
-                    return {
-                        name: `第${wIdx + 1}週`,
-                        budgetRevenue: 0, actualRevenue: 0,
-                        newEnrollments: wVal.enroll,
-                        transferIns: wVal.transferIn,
-                        withdrawals: wVal.withdraw,
-                        recesses: wVal.recess,
-                        returns: wVal.return,
-                        transfers: wVal.transfer,
-                        graduates: wVal.graduate,
-                        flyers: 0,
-                        totalStudents: currentStudents,
-                        withdrawals_neg: -wVal.withdraw,
-                        recesses_neg: -wVal.recess,
-                        transfers_neg: -wVal.transfer,
-                        graduates_neg: -wVal.graduate
-                    };
+                    // 月末は必ず区切る
+                    if (dayNum === daysInMonth) isWeekEnd = true;
+
+                    if (isWeekEnd) {
+                        weekly.push({
+                            name: `第${weekly.length + 1}週`,
+                            budgetRevenue: 0, actualRevenue: 0,
+                            newEnrollments: currentWeekData.enroll,
+                            transferIns: currentWeekData.transferIn,
+                            withdrawals: currentWeekData.withdraw,
+                            recesses: currentWeekData.recess,
+                            returns: currentWeekData.return,
+                            transfers: currentWeekData.transfer,
+                            graduates: currentWeekData.graduate,
+                            flyers: 0,
+                            totalStudents: currentStudents,
+                            withdrawals_neg: currentWeekData.withdrawals_neg,
+                            recesses_neg: currentWeekData.recesses_neg,
+                            transfers_neg: currentWeekData.transfers_neg,
+                            graduates_neg: currentWeekData.graduates_neg
+                        });
+                        // リセット
+                        currentWeekData = { 
+                            enroll: 0, transferIn: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0,
+                            withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0
+                        };
+                    }
                 });
 
                 const netChange = (val.enroll + val.transferIn) - (val.withdraw + val.transfer + val.graduate);
@@ -453,7 +473,33 @@ function RobotSchoolDashboard() {
             });
         });
 
+        // 合計ロジック ('All')
         dataMap['All'] = MONTHS_LIST.map((month, idx) => {
+            // ベースとなる日数は、その月の日数（全校舎共通なので代表して計算）
+            let targetYearForMonth = targetYear;
+            let targetMonthIndex = idx + 3;
+            if (targetMonthIndex > 11) {
+                targetMonthIndex -= 12;
+                targetYearForMonth += 1;
+            }
+            const daysInMonth = new Date(targetYearForMonth, targetMonthIndex + 1, 0).getDate();
+
+            // 週数の計算（最初の校舎データがあればそれを使うのが確実だが、ない場合は再計算が必要。
+            // ここでは簡易的に、データがある最初の校舎の週構成をコピーする戦略をとる）
+            let sampleWeekly = [];
+            for (const c of targetCampuses) {
+                if (dataMap[c.id]?.[idx]?.weekly) {
+                    sampleWeekly = dataMap[c.id][idx].weekly;
+                    break;
+                }
+            }
+            // データが全くない場合用のダミー週数計算（表示エラー回避）
+            if (sampleWeekly.length === 0) {
+                // 最低限の枠だけ作る（中身は0）
+                // ※厳密にはカレンダー計算すべきだが、データ0なら表示影響なし
+                sampleWeekly = Array.from({length:4}, (_,i)=>({name:`第${i+1}週`}));
+            }
+
             const combined = {
                 name: month,
                 budgetRevenue: 0, actualRevenue: 0,
@@ -461,14 +507,14 @@ function RobotSchoolDashboard() {
                 totalStudents: 0, flyers: 0,
                 withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0,
                 
-                daily: Array.from({ length: 30 }, (_, i) => ({ 
+                daily: Array.from({ length: daysInMonth }, (_, i) => ({ 
                     name: `${i+1}日`, 
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 })),
                 
-                weekly: Array.from({ length: 4 }, (_, i) => ({ 
-                    name: `第${i+1}週`, 
+                weekly: sampleWeekly.map(w => ({
+                    name: w.name,
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 }))
@@ -477,18 +523,25 @@ function RobotSchoolDashboard() {
             targetCampuses.forEach(campusObj => {
                 const d = dataMap[campusObj.id]?.[idx];
                 if (d) {
+                    // 月合計
                     Object.keys(combined).forEach(k => {
                         if (typeof combined[k] === 'number') combined[k] += d[k];
                     });
+                    // 日次合計
                     d.daily.forEach((day, i) => {
-                        Object.keys(day).forEach(k => {
-                            if(typeof day[k] === 'number' && k!=='name') combined.daily[i][k] = (combined.daily[i][k]||0) + day[k];
-                        });
+                        if (combined.daily[i]) {
+                            Object.keys(day).forEach(k => {
+                                if(typeof day[k] === 'number' && k!=='name') combined.daily[i][k] = (combined.daily[i][k]||0) + day[k];
+                            });
+                        }
                     });
+                    // 週次合計
                     d.weekly.forEach((wk, i) => {
-                        Object.keys(wk).forEach(k => {
-                            if(typeof wk[k] === 'number' && k!=='name') combined.weekly[i][k] = (combined.weekly[i][k]||0) + wk[k];
-                        });
+                        if (combined.weekly[i]) {
+                            Object.keys(wk).forEach(k => {
+                                if(typeof wk[k] === 'number' && k!=='name') combined.weekly[i][k] = (combined.weekly[i][k]||0) + wk[k];
+                            });
+                        }
                     });
                 }
             });
@@ -523,7 +576,6 @@ function RobotSchoolDashboard() {
         if (isFirebaseInitialized && db) {
             try {
                 await setDoc(doc(db, "campuses", id), { id, name, sheetName, createdAt: serverTimestamp() });
-                // キャンパス追加時は強制リフレッシュ
                 await fetchFromFirebaseAndCache();
                 setNewCampusId(""); setNewCampusName(""); setNewCampusSheetName("");
             } catch(e) { alert("登録エラー: " + e.message); }
@@ -535,7 +587,6 @@ function RobotSchoolDashboard() {
         if (isFirebaseInitialized && db) {
             try {
                 await deleteDoc(doc(db, "campuses", targetId));
-                // キャンパス削除時は強制リフレッシュ
                 await fetchFromFirebaseAndCache();
                 if (selectedCampusId === targetId) setSelectedCampusId('All');
             } catch(e) { alert("削除エラー: " + e.message); }
@@ -629,15 +680,7 @@ function RobotSchoolDashboard() {
                                     <MapPin className="w-3 h-3 text-slate-500 mr-2" />
                                     <select value={selectedCampusId} onChange={(e) => setSelectedCampusId(e.target.value)} className="bg-transparent border-none text-sm font-medium text-slate-700 focus:ring-0 cursor-pointer py-1"><option value="All">全校舎 (合計)</option><option disabled>──────────</option>{campusList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
                                 </div>
-                                {/* ★ データ同期ボタン */}
-                                <button 
-                                    onClick={fetchFromFirebaseAndCache} 
-                                    disabled={isSyncing}
-                                    className={`p-2 rounded-lg border border-slate-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-slate-50 text-slate-600'}`}
-                                    title="データを最新の状態に更新"
-                                >
-                                    <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                                </button>
+                                <button onClick={fetchFromFirebaseAndCache} disabled={isSyncing} className={`p-2 rounded-lg border border-slate-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-slate-50 text-slate-600'}`} title="データを最新の状態に更新"><RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /></button>
                             </>
                         )}
                     </div>
