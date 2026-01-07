@@ -3,26 +3,750 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robot School Dashboard</title>
+    <title>Robot School Dashboard V3</title>
+    
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            blue: '#1E51A2',
+                            orange: '#F3981E',
+                            white: '#FFFFFF',
+                            slate: '#F8FAFC'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Babel for JSX transformation -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <link rel="stylesheet" href="style.css">
+
+    <!-- Import Map: すべての依存関係をESMとして定義 -->
     <script type="importmap">
     {
         "imports": {
             "react": "https://esm.sh/react@18.2.0",
             "react-dom": "https://esm.sh/react-dom@18.2.0",
             "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            "recharts": "https://esm.sh/recharts@2.12.2?external=react,react-dom",
-            "lucide-react": "https://esm.sh/lucide-react@0.344.0?external=react,react-dom",
-            "firebase/app": "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js",
-            "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js"
+            "recharts": "https://esm.sh/recharts@2.12.7?external=react,react-dom",
+            "lucide-react": "https://esm.sh/lucide-react@0.395.0?external=react,react-dom",
+            "firebase/app": "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js"
         }
     }
     </script>
+
+    <style>
+        body {
+            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+            background-color: #F8FAFC;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #1E51A2;
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
+<body>
     <div id="root"></div>
-    <script type="text/babel" data-type="module" src="./app.js"></script>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useMemo, useEffect, useRef } from "react";
+        import { createRoot } from "react-dom/client";
+        import { 
+            BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, AreaChart, Area
+        } from "recharts";
+        import { 
+            LayoutDashboard, Users, TrendingUp, Calendar, DollarSign, Activity, Loader2, 
+            AlertCircle, MapPin, Settings, Plus, Trash2, School, Database, FileText, 
+            Save, RefreshCw, Sun, Cloud, CloudRain, Snowflake, Ban, PenTool, 
+            ChevronDown, ChevronRight, Building, X, Upload, FileSpreadsheet, LogOut, ArrowRight
+        } from "lucide-react";
+        import { initializeApp } from "firebase/app";
+        import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from "firebase/firestore";
+
+        // ==========================================
+        // ★ Firebase設定
+        // ==========================================
+        const FIREBASE_CONFIG = {
+            apiKey: "AIzaSyCsgMN0SWCC1SvCDIakYBejTWlxwBmiwJk",
+            authDomain: "robodone-dashboard.firebaseapp.com",
+            projectId: "robodone-dashboard",
+            storageBucket: "robodone-dashboard.firebasestorage.app",
+            messagingSenderId: "457095919160",
+            appId: "1:457095919160:web:1716af87290b63733598cd"
+        };
+
+        let db = null;
+        let isFirebaseInitialized = false;
+        try {
+            if (FIREBASE_CONFIG.apiKey) {
+                const app = initializeApp(FIREBASE_CONFIG);
+                db = getFirestore(app);
+                isFirebaseInitialized = true;
+            }
+        } catch (e) { console.error("Firebase Init Error:", e); }
+
+        // ==========================================
+        // Constants & Helpers
+        // ==========================================
+        const MONTHS_LIST = ['4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月'];
+        const YEARS_LIST = [2022, 2023, 2024, 2025, 2026];
+
+        const formatYen = (val) => `¥${Number(val).toLocaleString()}`;
+        const formatDateStr = (date) => {
+            const y = date.getFullYear();
+            const m = ('0' + (date.getMonth() + 1)).slice(-2);
+            const d = ('0' + date.getDate()).slice(-2);
+            return `${y}-${m}-${d}`;
+        };
+
+        // ==========================================
+        // Components
+        // ==========================================
+
+        // 共通: ヘッダーカード
+        const StatCard = ({ title, value, subValue, icon: Icon, colorClass, trend }) => (
+            <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-l-transparent hover:border-l-brand-orange transition-all duration-200 group">
+                <div className="flex justify-between items-start">
+                    <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{title}</p>
+                        <h3 className="text-2xl font-bold text-gray-800 group-hover:text-brand-blue transition-colors">{value}</h3>
+                    </div>
+                    <div className={`p-3 rounded-full bg-gray-50 group-hover:bg-brand-blue/10 transition-colors`}>
+                        <Icon className={`w-6 h-6 ${colorClass || 'text-brand-blue'}`} />
+                    </div>
+                </div>
+                {subValue && (
+                    <div className="mt-4 flex items-center text-sm">
+                        <span className="text-gray-400 font-medium">{subValue}</span>
+                    </div>
+                )}
+            </div>
+        );
+
+        // CSVアップロードコンポーネント
+        const CsvUploader = ({ onUpload, isUploading }) => {
+            const fileInputRef = useRef(null);
+
+            const handleFileChange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const text = event.target.result;
+                    parseCSV(text);
+                };
+                reader.readAsText(file);
+            };
+
+            const parseCSV = (text) => {
+                // シンプルなCSVパーサー (日付, 科目, 金額, 摘要 を想定)
+                const lines = text.split(/\r\n|\n/);
+                const data = [];
+                // ヘッダー行をスキップする場合は i=1 から開始
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
+                    const cols = line.split(',');
+                    // 想定: 0:Date, 1:Category, 2:Amount, 3:Description
+                    if (cols.length >= 3) {
+                        data.push({
+                            date: cols[0].trim(),
+                            category: cols[1].trim(),
+                            amount: Number(cols[2].trim()) || 0,
+                            description: cols[3] ? cols[3].trim() : ''
+                        });
+                    }
+                }
+                onUpload(data);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+            };
+
+            return (
+                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors cursor-pointer group" onClick={() => fileInputRef.current?.click()}>
+                    <input type="file" accept=".csv" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
+                    <div className="w-16 h-16 bg-blue-50 text-brand-blue rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+                        {isUploading ? <Loader2 className="w-8 h-8 animate-spin" /> : <Upload className="w-8 h-8" />}
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-700 mb-1">CSVファイルをアップロード</h3>
+                    <p className="text-sm text-gray-400">クリックしてファイルを選択 (形式: 日付,科目,金額,摘要)</p>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // Main Application
+        // ==========================================
+        function App() {
+            // Global State
+            const [consoleMode, setConsoleMode] = useState('select'); // 'select', 'hq', 'school'
+            const [selectedCampusId, setSelectedCampusId] = useState(null);
+            
+            // Common Data State
+            const [campusList, setCampusList] = useState([]);
+            const [isLoading, setIsLoading] = useState(false);
+            const [selectedYear, setSelectedYear] = useState(2024); // Default Fiscal Year
+
+            // Firebase Fetch
+            const fetchCampuses = async () => {
+                if (!isFirebaseInitialized) return;
+                const snap = await getDocs(query(collection(db, "campuses"), orderBy("createdAt")));
+                setCampusList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            };
+
+            useEffect(() => {
+                fetchCampuses();
+            }, []);
+
+            // Navigation Handler
+            const handleEnterHQ = () => setConsoleMode('hq');
+            const handleEnterSchool = (campusId) => {
+                setSelectedCampusId(campusId);
+                setConsoleMode('school');
+            };
+            const handleBackToSelect = () => {
+                setConsoleMode('select');
+                setSelectedCampusId(null);
+            };
+
+            // ------------------------------------------
+            // View: Mode Selection (Landing)
+            // ------------------------------------------
+            if (consoleMode === 'select') {
+                return (
+                    <div className="min-h-screen bg-brand-slate flex items-center justify-center p-6">
+                        <div className="max-w-4xl w-full">
+                            <div className="text-center mb-12">
+                                <h1 className="text-4xl font-bold text-brand-blue mb-4 tracking-tight">Robot School Dashboard</h1>
+                                <p className="text-gray-500">管理コンソールを選択してください</p>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                {/* Headquarters Card */}
+                                <div 
+                                    onClick={handleEnterHQ}
+                                    className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-xl hover:border-brand-blue/30 transition-all group relative overflow-hidden"
+                                >
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-blue/5 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
+                                    <div className="relative z-10">
+                                        <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-blue/20">
+                                            <LayoutDashboard className="w-8 h-8 text-white" />
+                                        </div>
+                                        <h2 className="text-2xl font-bold text-gray-800 mb-2">本部コンソール</h2>
+                                        <p className="text-sm text-gray-500 mb-6">全校舎の売上・生徒数データの閲覧、マスタ管理、全体設定を行います。</p>
+                                        <span className="inline-flex items-center text-brand-blue font-bold text-sm group-hover:translate-x-1 transition-transform">
+                                            本部としてログイン <ArrowRight className="ml-2 w-4 h-4" />
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* School Card */}
+                                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-orange/5 rounded-bl-full -mr-8 -mt-8"></div>
+                                    <div className="relative z-10">
+                                        <div className="w-16 h-16 bg-brand-orange rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-orange/20">
+                                            <School className="w-8 h-8 text-white" />
+                                        </div>
+                                        <h2 className="text-2xl font-bold text-gray-800 mb-2">校舎コンソール</h2>
+                                        <p className="text-sm text-gray-500 mb-6">各校舎の日報入力、計画策定、収支データのアップロードを行います。</p>
+                                        
+                                        <div className="mt-4">
+                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-2">校舎を選択してログイン</label>
+                                            <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                                                {campusList.length === 0 && <div className="text-sm text-gray-400">校舎が登録されていません</div>}
+                                                {campusList.map(campus => (
+                                                    <button 
+                                                        key={campus.id}
+                                                        onClick={() => handleEnterSchool(campus.id)}
+                                                        className="w-full text-left px-4 py-3 rounded-lg border border-gray-100 hover:border-brand-orange hover:bg-orange-50 transition-colors flex items-center justify-between group"
+                                                    >
+                                                        <span className="font-bold text-gray-700 group-hover:text-brand-orange">{campus.name}</span>
+                                                        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-orange" />
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // ------------------------------------------
+            // View: HQ Console
+            // ------------------------------------------
+            if (consoleMode === 'hq') {
+                return <HQConsole onBack={handleBackToSelect} campusList={campusList} refreshCampuses={fetchCampuses} selectedYear={selectedYear} setSelectedYear={setSelectedYear} />;
+            }
+
+            // ------------------------------------------
+            // View: School Console
+            // ------------------------------------------
+            if (consoleMode === 'school') {
+                const targetCampus = campusList.find(c => c.id === selectedCampusId);
+                return <SchoolConsole onBack={handleBackToSelect} campus={targetCampus} selectedYear={selectedYear} setSelectedYear={setSelectedYear} />;
+            }
+
+            return null;
+        }
+
+        // ==========================================
+        // HQ Console Component
+        // ==========================================
+        function HQConsole({ onBack, campusList, refreshCampuses, selectedYear, setSelectedYear }) {
+            const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, settings
+            const [newCampusName, setNewCampusName] = useState("");
+            const [newCampusId, setNewCampusId] = useState("");
+
+            // Dummy Data for Dashboard
+            const data = [
+                { name: '4月', revenue: 400000, students: 24 },
+                { name: '5月', revenue: 300000, students: 28 },
+                { name: '6月', revenue: 500000, students: 35 },
+                { name: '7月', revenue: 450000, students: 38 },
+                { name: '8月', revenue: 600000, students: 45 },
+                { name: '9月', revenue: 550000, students: 48 },
+            ];
+
+            const handleAddCampus = async () => {
+                if (!newCampusId || !newCampusName) return alert("IDと校舎名は必須です");
+                if (!isFirebaseInitialized) return alert("Firebase未接続");
+                try {
+                    await setDoc(doc(db, "campuses", newCampusId), {
+                        id: newCampusId, name: newCampusName, createdAt: serverTimestamp()
+                    });
+                    setNewCampusId(""); setNewCampusName("");
+                    refreshCampuses();
+                    alert("校舎を追加しました");
+                } catch(e) { alert("エラー: " + e.message); }
+            };
+
+            return (
+                <div className="flex h-screen bg-brand-slate overflow-hidden">
+                    {/* Sidebar */}
+                    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col z-10">
+                        <div className="p-6 border-b border-gray-100 flex items-center space-x-3">
+                            <div className="w-8 h-8 bg-brand-blue rounded flex items-center justify-center">
+                                <LayoutDashboard className="w-5 h-5 text-white" />
+                            </div>
+                            <span className="font-bold text-lg text-gray-800">本部コンソール</span>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-1">
+                            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-brand-blue text-white shadow-md shadow-brand-blue/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                <Activity className="w-5 h-5 mr-3" />ダッシュボード
+                            </button>
+                            <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'settings' ? 'bg-brand-blue text-white shadow-md shadow-brand-blue/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                <Settings className="w-5 h-5 mr-3" />校舎管理・設定
+                            </button>
+                        </nav>
+                        <div className="p-4 border-t border-gray-100">
+                            <button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2">
+                                <LogOut className="w-4 h-4 mr-2" /> モード選択へ戻る
+                            </button>
+                        </div>
+                    </aside>
+
+                    {/* Main Content */}
+                    <main className="flex-1 overflow-y-auto">
+                        <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
+                            <h2 className="text-xl font-bold text-gray-800">
+                                {activeTab === 'dashboard' ? '全校サマリー' : '校舎設定'}
+                            </h2>
+                            <div className="flex items-center space-x-4">
+                                <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-blue outline-none">
+                                    {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
+                                </select>
+                                <div className="w-8 h-8 rounded-full bg-brand-orange flex items-center justify-center text-white font-bold text-xs">HQ</div>
+                            </div>
+                        </header>
+
+                        <div className="p-8 max-w-7xl mx-auto fade-in">
+                            {activeTab === 'dashboard' && (
+                                <div className="space-y-8">
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                        <StatCard title="全校売上合計" value="¥12,450,000" subValue="対前年 +12%" icon={DollarSign} colorClass="text-brand-blue" />
+                                        <StatCard title="総生徒数" value="342名" subValue="前月比 +5名" icon={Users} colorClass="text-brand-orange" />
+                                        <StatCard title="新規入会" value="18名" subValue="当月実績" icon={TrendingUp} colorClass="text-emerald-500" />
+                                        <StatCard title="退会数" value="3名" subValue="当月実績" icon={TrendingUp} colorClass="text-rose-500" />
+                                    </div>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                            <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 売上推移</h3>
+                                            <div className="h-64">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <AreaChart data={data}>
+                                                        <defs>
+                                                            <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                                                                <stop offset="5%" stopColor="#1E51A2" stopOpacity={0.8}/>
+                                                                <stop offset="95%" stopColor="#1E51A2" stopOpacity={0}/>
+                                                            </linearGradient>
+                                                        </defs>
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                        <XAxis dataKey="name" />
+                                                        <YAxis />
+                                                        <Tooltip />
+                                                        <Area type="monotone" dataKey="revenue" stroke="#1E51A2" fillOpacity={1} fill="url(#colorRevenue)" />
+                                                    </AreaChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+                                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                            <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Users className="w-5 h-5 mr-2 text-brand-orange"/> 生徒数推移</h3>
+                                            <div className="h-64">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <BarChart data={data}>
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                        <XAxis dataKey="name" />
+                                                        <YAxis />
+                                                        <Tooltip />
+                                                        <Bar dataKey="students" fill="#F3981E" radius={[4, 4, 0, 0]} />
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-4">校舎別状況一覧</h3>
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="bg-gray-50 text-gray-500 font-medium">
+                                                <tr>
+                                                    <th className="px-4 py-3 rounded-l-lg">校舎名</th>
+                                                    <th className="px-4 py-3">売上(当月)</th>
+                                                    <th className="px-4 py-3">生徒数</th>
+                                                    <th className="px-4 py-3 rounded-r-lg">前月比</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {campusList.map(c => (
+                                                    <tr key={c.id} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3 font-bold text-gray-700">{c.name}</td>
+                                                        <td className="px-4 py-3">¥---,---</td>
+                                                        <td className="px-4 py-3">--名</td>
+                                                        <td className="px-4 py-3 text-gray-400">-</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'settings' && (
+                                <div className="space-y-8">
+                                    <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Plus className="w-5 h-5 mr-2 text-brand-blue"/> 新規校舎登録</h3>
+                                        <div className="flex gap-4 items-end">
+                                            <div className="flex-1">
+                                                <label className="block text-sm font-bold text-gray-700 mb-2">校舎ID (英数字)</label>
+                                                <input type="text" value={newCampusId} onChange={e=>setNewCampusId(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-blue outline-none" placeholder="例: shibuya" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <label className="block text-sm font-bold text-gray-700 mb-2">校舎名</label>
+                                                <input type="text" value={newCampusName} onChange={e=>setNewCampusName(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-blue outline-none" placeholder="例: 渋谷校" />
+                                            </div>
+                                            <button onClick={handleAddCampus} className="bg-brand-blue text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors">登録</button>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6">登録済み校舎リスト</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {campusList.map(c => (
+                                                <div key={c.id} className="p-4 border border-gray-200 rounded-lg flex justify-between items-center bg-gray-50">
+                                                    <div>
+                                                        <div className="font-bold text-gray-700">{c.name}</div>
+                                                        <div className="text-xs text-gray-400">ID: {c.id}</div>
+                                                    </div>
+                                                    <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // School Console Component
+        // ==========================================
+        function SchoolConsole({ onBack, campus, selectedYear, setSelectedYear }) {
+            const [activeTab, setActiveTab] = useState('daily'); // daily, plan, finance
+            const [selectedMonth, setSelectedMonth] = useState('4月');
+            
+            // Daily Report State
+            const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
+            const [reportData, setReportData] = useState({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
+
+            // Finance State
+            const [uploading, setUploading] = useState(false);
+            const [financialData, setFinancialData] = useState([]);
+
+            const handleCsvUpload = async (data) => {
+                if (!isFirebaseInitialized) return alert("Firebase未接続");
+                setUploading(true);
+                try {
+                    // バッチ書き込みでFirestoreへ保存 (コレクション構造: financials/{campusId}_{YYYYMM}/{data})
+                    // 今回はシンプルに financials/{autoId} で campusId を付与して保存
+                    const batch = writeBatch(db);
+                    
+                    data.forEach(item => {
+                        const ref = doc(collection(db, "financials"));
+                        batch.set(ref, {
+                            ...item,
+                            campusId: campus.id,
+                            createdAt: serverTimestamp()
+                        });
+                    });
+
+                    await batch.commit();
+                    setFinancialData(prev => [...prev, ...data]); // 簡易表示用
+                    alert(`${data.length}件のデータを取り込みました`);
+                } catch (e) {
+                    console.error(e);
+                    alert("取込エラー: " + e.message);
+                } finally {
+                    setUploading(false);
+                }
+            };
+
+            const handleSaveReport = () => {
+                alert("日報を保存しました (デモ)");
+            };
+
+            const weatherMap = {
+                sunny: { icon: Sun, label: '晴', color: 'text-orange-500' },
+                cloudy: { icon: Cloud, label: '曇', color: 'text-gray-500' },
+                rainy: { icon: CloudRain, label: '雨', color: 'text-blue-500' },
+                snowy: { icon: Snowflake, label: '雪', color: 'text-cyan-500' },
+                closed: { icon: Ban, label: '休', color: 'text-red-500' }
+            };
+
+            if (!campus) return <div>Loading...</div>;
+
+            return (
+                <div className="flex h-screen bg-brand-slate overflow-hidden">
+                    {/* Sidebar */}
+                    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col z-10">
+                        <div className="p-6 border-b border-gray-100">
+                            <div className="flex items-center space-x-2 mb-1">
+                                <School className="w-5 h-5 text-brand-orange" />
+                                <span className="font-bold text-sm text-brand-orange">校舎コンソール</span>
+                            </div>
+                            <h2 className="text-xl font-bold text-gray-800 truncate">{campus.name}</h2>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-1">
+                            <button onClick={() => setActiveTab('daily')} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'daily' ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                <Calendar className="w-5 h-5 mr-3" />日報入力
+                            </button>
+                            <button onClick={() => setActiveTab('plan')} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'plan' ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                <FileText className="w-5 h-5 mr-3" />計画策定 (年/月)
+                            </button>
+                            <button onClick={() => setActiveTab('finance')} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'finance' ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                <FileSpreadsheet className="w-5 h-5 mr-3" />収支データ取込
+                            </button>
+                        </nav>
+                        <div className="p-4 border-t border-gray-100">
+                            <button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2">
+                                <LogOut className="w-4 h-4 mr-2" /> モード選択へ戻る
+                            </button>
+                        </div>
+                    </aside>
+
+                    {/* Main Content */}
+                    <main className="flex-1 overflow-y-auto">
+                        <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
+                            <h2 className="text-xl font-bold text-gray-800">
+                                {{daily:'日報管理', plan:'計画策定', finance:'収支管理'}[activeTab]}
+                            </h2>
+                            <div className="flex items-center space-x-4">
+                                <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-orange outline-none">
+                                    {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
+                                </select>
+                                <div className="w-8 h-8 rounded-full bg-brand-blue flex items-center justify-center text-white font-bold text-xs">SC</div>
+                            </div>
+                        </header>
+
+                        <div className="p-8 max-w-5xl mx-auto fade-in">
+                            {activeTab === 'daily' && (
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    {/* Calendar Section (Mock) */}
+                                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between mb-4">
+                                            <h3 className="font-bold text-gray-700 flex items-center"><Calendar className="w-4 h-4 mr-2"/> {selectedYear}年 {selectedMonth}</h3>
+                                            <div className="flex gap-1">
+                                                {MONTHS_LIST.map(m => (
+                                                    <button key={m} onClick={()=>setSelectedMonth(m)} className={`text-xs px-2 py-1 rounded ${selectedMonth===m ? 'bg-brand-orange text-white':'text-gray-400 hover:bg-gray-100'}`}>{m}</button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                                            {['日','月','火','水','木','金','土'].map((d,i) => <div key={i} className="bg-gray-50 text-center py-2 text-xs font-bold text-gray-500">{d}</div>)}
+                                            {Array.from({length:31}, (_,i) => i+1).map(d => (
+                                                <div key={d} onClick={()=>setReportDate(`${selectedYear}-${selectedMonth}-${d}`)} className="bg-white h-20 p-1 cursor-pointer hover:bg-blue-50 transition-colors relative">
+                                                    <span className="text-xs font-bold text-gray-700">{d}</span>
+                                                    {/* Dummy Indicators */}
+                                                    {d % 3 === 0 && <div className="absolute bottom-1 right-1 text-[10px] text-gray-400">済</div>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Input Section */}
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
+                                        <h3 className="font-bold text-gray-800 mb-4 flex items-center"><PenTool className="w-4 h-4 mr-2 text-brand-orange"/> {reportDate} の日報</h3>
+                                        
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-400 block mb-2">天気</label>
+                                                <div className="flex gap-2">
+                                                    {Object.entries(weatherMap).map(([key, val]) => {
+                                                        const Icon = val.icon;
+                                                        return (
+                                                            <button key={key} onClick={()=>setReportData({...reportData, weather:key})} className={`flex-1 py-2 rounded-lg border flex flex-col items-center justify-center transition-all ${reportData.weather===key ? 'bg-blue-50 border-brand-blue shadow-inner' : 'border-gray-100 hover:bg-gray-50'}`}>
+                                                                <Icon className={`w-4 h-4 mb-1 ${val.color}`} />
+                                                                <span className="text-[10px] font-bold text-gray-500">{val.label}</span>
+                                                            </button>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="text-xs font-bold text-gray-400 block mb-1">門配数</label>
+                                                    <input type="number" value={reportData.flyers} onChange={e=>setReportData({...reportData, flyers:e.target.value})} className="w-full border border-gray-300 rounded p-2 text-right font-bold text-gray-700" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-bold text-gray-400 block mb-1">T&T数</label>
+                                                    <input type="number" value={reportData.touch} onChange={e=>setReportData({...reportData, touch:e.target.value})} className="w-full border border-gray-300 rounded p-2 text-right font-bold text-gray-700" />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-400 block mb-1">体験会実施数</label>
+                                                <input type="number" value={reportData.trial} onChange={e=>setReportData({...reportData, trial:e.target.value})} className="w-full border border-gray-300 rounded p-2 text-right font-bold text-gray-700" />
+                                            </div>
+
+                                            <button onClick={handleSaveReport} className="w-full bg-brand-orange text-white font-bold py-3 rounded-lg shadow-sm hover:bg-orange-600 transition-colors flex items-center justify-center mt-4">
+                                                <Save className="w-4 h-4 mr-2" /> 保存する
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'plan' && (
+                                <div className="space-y-6">
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="font-bold text-gray-800 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-brand-orange"/> {selectedYear}年度 計画入力</h3>
+                                            <button className="text-brand-blue text-sm font-bold hover:underline">保存する</button>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left border-collapse">
+                                                <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200">
+                                                    <tr>
+                                                        <th className="px-4 py-3 min-w-[80px]">月度</th>
+                                                        <th className="px-4 py-3 min-w-[100px]">目標入会</th>
+                                                        <th className="px-4 py-3 min-w-[100px]">体験会数</th>
+                                                        <th className="px-4 py-3 min-w-[100px]">門配目標</th>
+                                                        <th className="px-4 py-3 min-w-[100px]">売上予算</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {MONTHS_LIST.map((m, idx) => (
+                                                        <tr key={m} className="hover:bg-gray-50">
+                                                            <td className="px-4 py-2 font-bold text-gray-700">{m}</td>
+                                                            <td className="px-4 py-2"><input type="number" className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none" placeholder="0"/></td>
+                                                            <td className="px-4 py-2"><input type="number" className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none" placeholder="0"/></td>
+                                                            <td className="px-4 py-2"><input type="number" className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none" placeholder="0"/></td>
+                                                            <td className="px-4 py-2"><input type="number" className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none" placeholder="0"/></td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'finance' && (
+                                <div className="space-y-8">
+                                    <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><FileSpreadsheet className="w-5 h-5 mr-2 text-brand-orange"/> 収支CSVデータ取込</h3>
+                                        
+                                        <div className="max-w-xl mx-auto">
+                                            <CsvUploader onUpload={handleCsvUpload} isUploading={uploading} />
+                                        </div>
+
+                                        <div className="mt-8">
+                                            <h4 className="text-sm font-bold text-gray-400 mb-4">取込済みデータプレビュー (最新5件)</h4>
+                                            {financialData.length === 0 ? (
+                                                <div className="text-center py-8 text-gray-400 bg-gray-50 rounded-lg">データがありません</div>
+                                            ) : (
+                                                <div className="overflow-hidden rounded-lg border border-gray-200">
+                                                    <table className="w-full text-sm text-left">
+                                                        <thead className="bg-gray-50 font-medium text-gray-500">
+                                                            <tr><th className="px-4 py-2">日付</th><th className="px-4 py-2">科目</th><th className="px-4 py-2">摘要</th><th className="px-4 py-2 text-right">金額</th></tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-100 bg-white">
+                                                            {financialData.slice(-5).map((row, i) => (
+                                                                <tr key={i}>
+                                                                    <td className="px-4 py-2">{row.date}</td>
+                                                                    <td className="px-4 py-2">{row.category}</td>
+                                                                    <td className="px-4 py-2 text-gray-500">{row.description}</td>
+                                                                    <td className="px-4 py-2 text-right font-mono">{row.amount.toLocaleString()}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
 </body>
 </html>
