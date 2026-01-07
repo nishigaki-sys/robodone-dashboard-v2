@@ -50,6 +50,8 @@
         ::-webkit-scrollbar-thumb:hover { background: #1E51A2; }
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -62,7 +64,7 @@
         import { 
             LayoutDashboard, Users, TrendingUp, Calendar, DollarSign, Activity, Loader2, 
             Settings, Plus, Trash2, School, FileText, Save, Sun, Cloud, CloudRain, Snowflake, Ban, PenTool, 
-            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown
+            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown, RefreshCw, Database
         } from "lucide-react";
         import { initializeApp } from "firebase/app";
         import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from "firebase/firestore";
@@ -77,6 +79,12 @@
             storageBucket: "robodone-dashboard.firebasestorage.app",
             messagingSenderId: "457095919160",
             appId: "1:457095919160:web:1716af87290b63733598cd"
+        };
+
+        const CACHE_KEYS = {
+            CAMPUSES: 'dash_campuses',
+            ALL_DATA: 'dash_all_data',
+            LAST_UPDATED: 'dash_last_updated'
         };
 
         let db = null;
@@ -111,7 +119,6 @@
 
         // 週構成計算ロジック (月曜始まり、日曜終わり)
         const getWeeksStruct = (fiscalYear, monthIndex) => {
-            // monthIndex: 0 -> 4月 (JS:3), 11 -> 3月 (JS:2, NextYear)
             let targetYear = fiscalYear;
             let jsMonth = monthIndex + 3; 
             if (jsMonth > 11) {
@@ -127,8 +134,6 @@
                 const dateObj = new Date(targetYear, jsMonth, day);
                 const dayOfWeek = dateObj.getDay(); // 0:Sun, 1:Mon, ..., 6:Sat
                 
-                // 終了判定: 日曜日(0) または 月末
-                // 特例: 初日が日曜日の場合も第1週として区切る
                 let isWeekEnd = (dayOfWeek === 0) || (day === daysInMonth);
                 
                 if (isWeekEnd) {
@@ -155,7 +160,6 @@
                 sheetNameToIdMap[normalizeString(key)] = c.id;
             });
 
-            // 1. Calculate Base Student Count (Before Target Year)
             let baseStudentCount = 0;
             const countBefore = (list, typeFilter = null) => {
                 let count = 0;
@@ -177,16 +181,13 @@
 
             let currentStudents = baseStudentCount;
 
-            // 2. Build Monthly, Weekly, Daily Stats
             const monthlyStats = MONTHS_LIST.map((monthName, mIdx) => {
                 const { weeks, daysInMonth, year: tYear, month: tMonth } = getWeeksStruct(targetYear, mIdx);
                 
-                // --- Daily Data Construction ---
                 const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
                     const day = i + 1;
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
                     
-                    // Filter events for this specific day
                     const filterDay = (list, typeFilter=null, dateKey='date') => list.filter(item => {
                         const d = parseDate(item[dateKey]);
                         if (!d) return false;
@@ -203,18 +204,11 @@
                     const dTransferOut = filterDay(statusChanges, "転校");
                     const dRecess = filterDay(statusChanges, "休会");
 
-                    // Daily Reports (Find specific report)
-                    const dayReport = dailyReports.find(r => {
-                        // dailyReports date format is YYYY-MM-DD string
-                        return r.date === dateStr; 
-                    }) || {};
-
+                    const dayReport = dailyReports.find(r => r.date === dateStr) || {};
                     const dFlyers = Number(dayReport.flyers || 0);
                     
-                    // Trial Apps (Application Date)
                     const dTrialApp = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'date');
                     const dEventApp = filterDay(trialApps.filter(a => a.type?.includes('イベント')), null, 'date');
-                    // Trial Execution (Trial Date)
                     const dTrialExec = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'trialDate');
                     const dEventExec = filterDay(trialApps.filter(a => a.type?.includes('イベント')), null, 'trialDate');
 
@@ -225,7 +219,6 @@
                     return {
                         name: `${day}日`,
                         date: dateStr,
-                        // Flows
                         newEnrollments: dEnroll,
                         transferIns: dTransferIn,
                         returns: dReturn,
@@ -234,18 +227,15 @@
                         graduates_neg: -dGrad,
                         transfers_neg: -dTransferOut,
                         recesses_neg: -dRecess,
-                        // Marketing
                         flyers: dFlyers,
                         trialApp: dTrialApp,
                         eventApp: dEventApp,
                         trialExec: dTrialExec,
                         eventExec: dEventExec,
-                        // Financial
                         revenue: dRevenue
                     };
                 });
 
-                // --- Weekly Aggregation ---
                 const weeklyData = weeks.map(week => {
                     const daysInWeek = dailyData.slice(week.startDay - 1, week.endDay);
                     const sum = (key) => daysInWeek.reduce((acc, d) => acc + (d[key] || 0), 0);
@@ -270,14 +260,13 @@
                     };
                 });
 
-                // --- Monthly Aggregation ---
                 const sumDaily = (key) => dailyData.reduce((acc, d) => acc + (d[key] || 0), 0);
                 
                 const mEnroll = sumDaily('newEnrollments');
                 const mTransferIn = sumDaily('transferIns');
                 const mReturn = sumDaily('returns');
                 const mWithdraw = sumDaily('withdrawals');
-                const mGrad = -sumDaily('graduates_neg'); // stored as neg in daily
+                const mGrad = -sumDaily('graduates_neg'); 
                 const mTransferOut = -sumDaily('transfers_neg');
 
                 const netChange = (mEnroll + mTransferIn + mReturn) - (mWithdraw + mGrad + mTransferOut);
@@ -294,16 +283,12 @@
                     transfers_neg: sumDaily('transfers_neg'),
                     graduates_neg: sumDaily('graduates_neg'),
                     recesses_neg: sumDaily('recesses_neg'),
-                    
                     flyers: sumDaily('flyers'),
                     trialApp: sumDaily('trialApp'),
                     trialExec: sumDaily('trialExec'),
                     eventApp: sumDaily('eventApp'),
                     eventExec: sumDaily('eventExec'),
-                    
                     revenue: sumDaily('revenue'),
-                    
-                    // Detailed Breakdown
                     daily: dailyData,
                     weekly: weeklyData
                 };
@@ -397,9 +382,13 @@
             const [consoleMode, setConsoleMode] = useState('select'); 
             const [selectedCampusId, setSelectedCampusId] = useState(null);
             const [campusList, setCampusList] = useState([]);
-            const [selectedYear, setSelectedYear] = useState(2025); // Default to 2025 based on prompt
+            const [selectedYear, setSelectedYear] = useState(2025); 
             const [notification, setNotification] = useState(null);
             
+            const [isSyncing, setIsSyncing] = useState(false);
+            const [lastUpdated, setLastUpdated] = useState(null);
+            const [isUsingCache, setIsUsingCache] = useState(false);
+
             // Global Data State
             const [allData, setAllData] = useState({
                 enrollments: [],
@@ -415,9 +404,35 @@
                 setTimeout(() => setNotification(null), 3000);
             };
 
+            // Cache Logic
+            const loadFromCache = () => {
+                try {
+                    const cachedCampuses = localStorage.getItem(CACHE_KEYS.CAMPUSES);
+                    const cachedAllData = localStorage.getItem(CACHE_KEYS.ALL_DATA);
+                    const cachedTime = localStorage.getItem(CACHE_KEYS.LAST_UPDATED);
+
+                    if (cachedCampuses && cachedAllData) {
+                        setCampusList(JSON.parse(cachedCampuses));
+                        setAllData(JSON.parse(cachedAllData));
+                        if (cachedTime) setLastUpdated(new Date(cachedTime));
+                        setIsUsingCache(true);
+                        return true;
+                    }
+                } catch (e) { console.error("Cache load error", e); }
+                return false;
+            };
+
             // Fetch Data
-            const fetchData = async () => {
+            const fetchData = async (forceUpdate = false) => {
                 if (!isFirebaseInitialized) return;
+
+                // Use cache if available and not forcing update
+                if (!forceUpdate) {
+                    const loaded = loadFromCache();
+                    if (loaded) return;
+                }
+
+                setIsSyncing(true);
                 try {
                     const [campuses, enroll, status, trans, reports, finance, trials] = await Promise.all([
                         getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
@@ -429,19 +444,39 @@
                         getDocs(collection(db, "trial_applications"))
                     ]);
 
-                    setCampusList(campuses.docs.map(d => ({ id: d.id, ...d.data() })));
-                    setAllData({
+                    const cList = campuses.docs.map(d => ({ id: d.id, ...d.data() }));
+                    const aData = {
                         enrollments: enroll.docs.map(d => ({id:d.id, ...d.data()})),
                         statusChanges: status.docs.map(d => ({id:d.id, ...d.data()})),
                         transfers: trans.docs.map(d => ({id:d.id, ...d.data()})),
                         dailyReports: reports.docs.map(d => ({id:d.id, ...d.data()})),
                         financials: finance.docs.map(d => ({id:d.id, ...d.data()})),
                         trialApps: trials.docs.map(d => ({id:d.id, ...d.data()}))
-                    });
-                } catch (e) { console.error("Fetch Error:", e); }
+                    };
+
+                    setCampusList(cList);
+                    setAllData(aData);
+                    
+                    // Save to Cache
+                    localStorage.setItem(CACHE_KEYS.CAMPUSES, JSON.stringify(cList));
+                    localStorage.setItem(CACHE_KEYS.ALL_DATA, JSON.stringify(aData));
+                    const now = new Date();
+                    localStorage.setItem(CACHE_KEYS.LAST_UPDATED, now.toISOString());
+                    setLastUpdated(now);
+                    setIsUsingCache(false);
+
+                    if (forceUpdate) showNotify("データを更新しました");
+                } catch (e) { 
+                    console.error("Fetch Error:", e);
+                    showNotify("データ取得エラー", 'error');
+                } finally {
+                    setIsSyncing(false);
+                }
             };
 
             useEffect(() => { fetchData(); }, []);
+
+            const handleRefresh = () => fetchData(true);
 
             const handleEnterHQ = () => setConsoleMode('hq');
             const handleEnterSchool = (id) => { setSelectedCampusId(id); setConsoleMode('school'); };
@@ -488,12 +523,18 @@
                                         </div>
                                     </div>
                                 </div>
+                                {/* Cache Status Display */}
+                                <div className="mt-8 text-center text-xs text-gray-400 flex items-center justify-center gap-4">
+                                    <span className="flex items-center gap-1"><Database className={`w-3 h-3 ${isFirebaseInitialized ? 'text-emerald-500' : 'text-gray-400'}`} /> {isUsingCache ? 'Cache Mode' : 'Online Mode'}</span>
+                                    <span>更新: {lastUpdated ? lastUpdated.toLocaleTimeString() : '-'}</span>
+                                    {isSyncing && <Loader2 className="w-3 h-3 animate-spin text-brand-blue" />}
+                                </div>
                             </div>
                         </div>
                     )}
 
-                    {consoleMode === 'hq' && <HQConsole onBack={handleBack} campusList={campusList} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={fetchData} showNotify={showNotify} />}
-                    {consoleMode === 'school' && <SchoolConsole onBack={handleBack} campus={campusList.find(c=>c.id===selectedCampusId)} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={fetchData} showNotify={showNotify} />}
+                    {consoleMode === 'hq' && <HQConsole onBack={handleBack} campusList={campusList} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={handleRefresh} showNotify={showNotify} isSyncing={isSyncing} lastUpdated={lastUpdated} isUsingCache={isUsingCache} />}
+                    {consoleMode === 'school' && <SchoolConsole onBack={handleBack} campus={campusList.find(c=>c.id===selectedCampusId)} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={handleRefresh} showNotify={showNotify} isSyncing={isSyncing} lastUpdated={lastUpdated} isUsingCache={isUsingCache} />}
                 </>
             );
         }
@@ -501,7 +542,7 @@
         // ==========================================
         // 5. HQ Console
         // ==========================================
-        function HQConsole({ onBack, campusList, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
+        function HQConsole({ onBack, campusList, allData, selectedYear, setSelectedYear, refreshData, showNotify, isSyncing, lastUpdated, isUsingCache }) {
             const [activeTab, setActiveTab] = useState('dashboard');
             const [viewMode, setViewMode] = useState('annual'); // annual, monthly, weekly
             const [selectedMonth, setSelectedMonth] = useState('4月');
@@ -510,7 +551,6 @@
             const [newCampusId, setNewCampusId] = useState("");
 
             // Aggregate Data for HQ
-            // Returns an array of MONTHLY objects, each containing daily and weekly breakdowns
             const fullDashboardData = useMemo(() => {
                 return processDashboardData(
                     campusList, 
@@ -536,17 +576,12 @@
             }, [fullDashboardData, viewMode, selectedMonth]);
 
             const totals = useMemo(() => {
-                // Calculate totals based on DISPLAY data (which might be just one month's days/weeks)
-                // If annual, displayData is 12 months. If monthly, displayData is ~30 days.
-                // We need to normalize key names or just sum appropriate fields.
-                
                 return displayData.reduce((acc, curr) => ({
                     revenue: acc.revenue + (curr.revenue || 0),
                     newEnrollments: acc.newEnrollments + (curr.newEnrollments || 0),
                     withdrawals: acc.withdrawals + (curr.withdrawals || 0),
                     transferIns: acc.transferIns + (curr.transferIns || 0),
                     returns: acc.returns + (curr.returns || 0),
-                    // For negative values in charts, we might want absolute totals here
                     graduates: acc.graduates + Math.abs(curr.graduates_neg || 0),
                     transfers: acc.transfers + Math.abs(curr.transfers_neg || 0),
                     flyers: acc.flyers + (curr.flyers || 0),
@@ -555,10 +590,6 @@
                 }), { revenue: 0, newEnrollments: 0, withdrawals: 0, transferIns: 0, returns: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0 });
             }, [displayData]);
             
-            // Current Total Students: For annual, it's the last month. For monthly/weekly, it implies the student count at end of period?
-            // Actually simpler to just take the student count from the latest available data point in annual mode.
-            // But for Month/Week views, we don't track running total per day in this simplified structure (only flow).
-            // So we'll use the annual data's last month for "Current Students" regardless of view, or specific month if in monthly view.
             const currentTotalStudents = useMemo(() => {
                 if (viewMode === 'annual') {
                     return fullDashboardData[fullDashboardData.length - 1]?.students || 0;
@@ -572,7 +603,7 @@
                 try {
                     await setDoc(doc(db, "campuses", newCampusId), { id: newCampusId, name: newCampusName, createdAt: serverTimestamp() });
                     setNewCampusId(""); setNewCampusName("");
-                    refreshData();
+                    refreshData(); // Force Refresh to update cache
                     showNotify("校舎を追加しました");
                 } catch(e) { showNotify("エラー: " + e.message, 'error'); }
             };
@@ -581,7 +612,7 @@
                 if (!confirm(`${name} を削除しますか？`)) return;
                 try {
                     await deleteDoc(doc(db, "campuses", id));
-                    refreshData();
+                    refreshData(); // Force Refresh
                     showNotify("校舎を削除しました");
                 } catch(e) { showNotify("エラー: " + e.message, 'error'); }
             };
@@ -602,13 +633,20 @@
                                 </button>
                             ))}
                         </nav>
-                        <div className="p-4 border-t border-gray-100"><button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2"><LogOut className="w-4 h-4 mr-2" /> 戻る</button></div>
+                        <div className="p-4 border-t border-gray-100 space-y-2">
+                            <div className="text-xs text-gray-400 flex flex-col gap-1 px-4">
+                                <div className="flex justify-between items-center">
+                                    <span className="flex items-center gap-1"><Database className={`w-3 h-3 ${isUsingCache?'text-brand-orange':'text-emerald-500'}`}/> {isUsingCache ? 'Cache' : 'Live'}</span>
+                                    <span>{lastUpdated ? lastUpdated.toLocaleTimeString() : '-'}</span>
+                                </div>
+                            </div>
+                            <button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2"><LogOut className="w-4 h-4 mr-2" /> 戻る</button>
+                        </div>
                     </aside>
                     <main className="flex-1 overflow-y-auto">
                         <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
                             <h2 className="text-xl font-bold text-gray-800">{{dashboard:'全校サマリー', students:'生徒数・入退会', marketing:'集客・ファネル', settings:'校舎マスタ管理'}[activeTab]}</h2>
                             <div className="flex items-center space-x-3">
-                                {/* View Mode Switcher */}
                                 {activeTab !== 'settings' && (
                                     <>
                                         <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
@@ -632,10 +670,14 @@
                                 <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-blue outline-none">
                                     {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
                                 </select>
+                                <button onClick={refreshData} disabled={isSyncing} className={`p-2 rounded-lg border border-gray-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-gray-50 text-gray-600'}`} title="データを最新の状態に更新">
+                                    <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                                </button>
                                 <div className="w-8 h-8 rounded-full bg-brand-orange flex items-center justify-center text-white font-bold text-xs">HQ</div>
                             </div>
                         </header>
                         <div className="p-8 max-w-7xl mx-auto">
+                            {/* ... (Existing HQ Tab Content) ... */}
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -738,7 +780,7 @@
         // ==========================================
         // 6. School Console
         // ==========================================
-        function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
+        function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify, isSyncing, lastUpdated, isUsingCache }) {
             const [activeTab, setActiveTab] = useState('daily');
             const [selectedMonth, setSelectedMonth] = useState('4月');
             const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
@@ -796,7 +838,7 @@
                         trialLessons: Number(inputData.trial),
                         updatedAt: serverTimestamp()
                     });
-                    refreshData();
+                    refreshData(); // Force Refresh
                     showNotify("日報を保存しました");
                 } catch(e) { showNotify("エラー: " + e.message, 'error'); }
             };
@@ -839,7 +881,7 @@
                         batch.set(ref, { ...item, campusId: campus.id, createdAt: serverTimestamp() });
                     });
                     await batch.commit();
-                    refreshData();
+                    refreshData(); // Force Refresh
                     showNotify(`${data.length}件のデータを取り込みました`);
                 } catch (e) { showNotify("エラー: " + e.message, 'error'); } finally { setUploading(false); }
             };
@@ -862,7 +904,15 @@
                                 </button>
                             ))}
                         </nav>
-                        <div className="p-4 border-t border-gray-100"><button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2"><LogOut className="w-4 h-4 mr-2" /> 戻る</button></div>
+                        <div className="p-4 border-t border-gray-100 space-y-2">
+                            <div className="text-xs text-gray-400 flex flex-col gap-1 px-4">
+                                <div className="flex justify-between items-center">
+                                    <span className="flex items-center gap-1"><Database className={`w-3 h-3 ${isUsingCache?'text-brand-orange':'text-emerald-500'}`}/> {isUsingCache ? 'Cache' : 'Live'}</span>
+                                    <span>{lastUpdated ? lastUpdated.toLocaleTimeString() : '-'}</span>
+                                </div>
+                            </div>
+                            <button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2"><LogOut className="w-4 h-4 mr-2" /> 戻る</button>
+                        </div>
                     </aside>
                     <main className="flex-1 overflow-y-auto">
                         <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
@@ -871,10 +921,14 @@
                                 <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-orange outline-none">
                                     {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
                                 </select>
+                                <button onClick={refreshData} disabled={isSyncing} className={`p-2 rounded-lg border border-gray-200 transition-all ${isSyncing ? 'bg-blue-50 text-blue-600' : 'bg-white hover:bg-gray-50 text-gray-600'}`} title="データを最新の状態に更新">
+                                    <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                                </button>
                                 <div className="w-8 h-8 rounded-full bg-brand-blue flex items-center justify-center text-white font-bold text-xs">SC</div>
                             </div>
                         </header>
                         <div className="p-8 max-w-5xl mx-auto">
+                            {/* ... (Existing School Tab Content) ... */}
                             {activeTab === 'daily' && (
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in">
                                     <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
