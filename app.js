@@ -26,6 +26,7 @@ const CACHE_KEYS = {
     STATUS: 'dash_status',
     TRANSFERS: 'dash_transfers',
     DAILY_REPORTS: 'dash_daily_reports',
+    TRIAL_APPS: 'dash_trial_apps', // ★追加
     LAST_UPDATED: 'dash_last_updated'
 };
 
@@ -176,6 +177,7 @@ function RobotSchoolDashboard() {
     const [realStatusChanges, setRealStatusChanges] = useState([]);
     const [realTransfers, setRealTransfers] = useState([]);
     const [realDailyReports, setRealDailyReports] = useState([]);
+    const [realTrialApps, setRealTrialApps] = useState([]); // ★追加: 体験会申込データ
 
     const [rawDataMap, setRawDataMap] = useState(null);
     const [displayData, setDisplayData] = useState([]);
@@ -197,6 +199,7 @@ function RobotSchoolDashboard() {
             const cachedStatus = localStorage.getItem(CACHE_KEYS.STATUS);
             const cachedTransfers = localStorage.getItem(CACHE_KEYS.TRANSFERS);
             const cachedReports = localStorage.getItem(CACHE_KEYS.DAILY_REPORTS);
+            const cachedTrialApps = localStorage.getItem(CACHE_KEYS.TRIAL_APPS); // ★追加
             const cachedTime = localStorage.getItem(CACHE_KEYS.LAST_UPDATED);
 
             if (cachedCampuses && cachedEnroll && cachedStatus && cachedTransfers) {
@@ -205,6 +208,7 @@ function RobotSchoolDashboard() {
                 setRealStatusChanges(JSON.parse(cachedStatus));
                 setRealTransfers(JSON.parse(cachedTransfers));
                 if (cachedReports) setRealDailyReports(JSON.parse(cachedReports));
+                if (cachedTrialApps) setRealTrialApps(JSON.parse(cachedTrialApps)); // ★追加
                 if (cachedTime) setLastUpdated(new Date(cachedTime));
                 setIsUsingCache(true);
                 return true;
@@ -217,12 +221,13 @@ function RobotSchoolDashboard() {
         if (!isFirebaseInitialized || !db) return;
         setIsSyncing(true);
         try {
-            const [campusSnap, enrollSnap, statusSnap, transferSnap, reportSnap] = await Promise.all([
+            const [campusSnap, enrollSnap, statusSnap, transferSnap, reportSnap, trialSnap] = await Promise.all([
                 getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
                 getDocs(collection(db, "enrollments")),
                 getDocs(collection(db, "status_changes")),
                 getDocs(collection(db, "transfers")),
-                getDocs(collection(db, "daily_reports"))
+                getDocs(collection(db, "daily_reports")),
+                getDocs(collection(db, "trial_applications")) // ★追加
             ]);
 
             const campuses = campusSnap.docs.map(doc => ({ id: doc.id, name: doc.data().name || doc.id, sheetName: doc.data().sheetName || doc.data().name || doc.id }));
@@ -230,6 +235,7 @@ function RobotSchoolDashboard() {
             const status = statusSnap.docs.map(d => ({id:d.id, ...d.data()}));
             const transfers = transferSnap.docs.map(d => ({id:d.id, ...d.data()}));
             const reports = reportSnap.docs.map(d => ({id:d.id, ...d.data()}));
+            const trialApps = trialSnap.docs.map(d => ({id:d.id, ...d.data()})); // ★追加
             const now = new Date();
 
             setCampusList(campuses);
@@ -237,6 +243,7 @@ function RobotSchoolDashboard() {
             setRealStatusChanges(status);
             setRealTransfers(transfers);
             setRealDailyReports(reports);
+            setRealTrialApps(trialApps); // ★追加
             setLastUpdated(now);
             setIsUsingCache(false);
 
@@ -245,6 +252,7 @@ function RobotSchoolDashboard() {
             localStorage.setItem(CACHE_KEYS.STATUS, JSON.stringify(status));
             localStorage.setItem(CACHE_KEYS.TRANSFERS, JSON.stringify(transfers));
             localStorage.setItem(CACHE_KEYS.DAILY_REPORTS, JSON.stringify(reports));
+            localStorage.setItem(CACHE_KEYS.TRIAL_APPS, JSON.stringify(trialApps)); // ★追加
             localStorage.setItem(CACHE_KEYS.LAST_UPDATED, now.toISOString());
         } catch (e) {
             console.error(e);
@@ -282,12 +290,13 @@ function RobotSchoolDashboard() {
         const generateData = async () => {
             setIsLoading(true);
             await new Promise(resolve => setTimeout(resolve, 100));
-            const map = generateAllCampusesData(campusList, realEnrollments, realStatusChanges, realTransfers, realDailyReports, selectedYear);
+            // ★引数に realTrialApps を追加
+            const map = generateAllCampusesData(campusList, realEnrollments, realStatusChanges, realTransfers, realDailyReports, realTrialApps, selectedYear);
             setRawDataMap(map);
             setIsLoading(false);
         };
         generateData();
-    }, [campusList, realEnrollments, realStatusChanges, realTransfers, realDailyReports, selectedYear]);
+    }, [campusList, realEnrollments, realStatusChanges, realTransfers, realDailyReports, realTrialApps, selectedYear]);
 
     // 表示データ抽出
     useEffect(() => {
@@ -303,9 +312,9 @@ function RobotSchoolDashboard() {
     }, [selectedCampusId, viewMode, selectedMonth, rawDataMap]);
 
     // ==========================================
-    // ★ 集計ロジック
+    // ★ 集計ロジック (体験会データ対応)
     // ==========================================
-    const generateAllCampusesData = (targetCampuses, realEnrollmentList, realStatusList, realTransferList, dailyReportsList, targetYear) => {
+    const generateAllCampusesData = (targetCampuses, realEnrollmentList, realStatusList, realTransferList, dailyReportsList, trialAppsList, targetYear) => {
         const dataMap = {};
         const sheetNameToIdMap = {};
         
@@ -315,11 +324,19 @@ function RobotSchoolDashboard() {
             sheetNameToIdMap[normalizeString(key)] = c.id;
         });
 
+        // マップ作成 (O(1)アクセス用)
         const reportMap = {};
         dailyReportsList.forEach(r => {
-            if (r.campusId && r.date) {
-                reportMap[`${r.campusId}_${r.date}`] = r;
-            }
+            if (r.campusId && r.date) reportMap[`${r.campusId}_${r.date}`] = r;
+        });
+
+        // ★ 体験会データを整形してマップ化 (キャンパスID別)
+        const trialDataByCampus = {};
+        trialAppsList.forEach(app => {
+            const campusId = sheetNameToIdMap[app.campus] || sheetNameToIdMap[normalizeString(app.campus)];
+            if (!campusId) return;
+            if (!trialDataByCampus[campusId]) trialDataByCampus[campusId] = [];
+            trialDataByCampus[campusId].push(app);
         });
 
         const countTotalBefore = (list, year, typeFilter = null) => {
@@ -389,6 +406,9 @@ function RobotSchoolDashboard() {
                 currentStudents = (pEnroll + pTransferIn) - (pWithdraw + pTransfer + pGraduate);
             }
 
+            // このキャンパスの体験会データ
+            const myTrialApps = trialDataByCampus[campusId] || [];
+
             dataMap[campusId] = MONTHS_LIST.map((month, mIdx) => {
                 const getCount = (countsObj) => (countsObj[campusId] && countsObj[campusId][mIdx]) ? countsObj[campusId][mIdx].total : 0;
                 const getDays = (countsObj) => (countsObj[campusId] && countsObj[campusId][mIdx]) ? countsObj[campusId][mIdx].days : {};
@@ -414,6 +434,22 @@ function RobotSchoolDashboard() {
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+dayNum).slice(-2)}`;
                     const report = reportMap[`${campusId}_${dateStr}`] || {};
 
+                    // ★体験会・イベント集計 (日次)
+                    let dTrialApp = 0, dEventApp = 0, dTrialExec = 0, dEventExec = 0;
+                    myTrialApps.forEach(app => {
+                        const isEvent = app.type && app.type.includes('イベント');
+                        // 申込日基準
+                        const appDate = parseDate(app.date);
+                        if (appDate && formatDateStr(appDate) === dateStr) {
+                            if (isEvent) dEventApp++; else dTrialApp++;
+                        }
+                        // 実施日基準
+                        const execDate = parseDate(app.trialDate);
+                        if (execDate && formatDateStr(execDate) === dateStr) {
+                            if (isEvent) dEventExec++; else dTrialExec++;
+                        }
+                    });
+
                     const dEnroll = hasRealData ? getDayCount(getDays(enrollmentCounts)) : 0;
                     const dTransferIn = hasRealData ? getDayCount(getDays(transferInCounts)) : 0;
                     const dWithdraw = hasRealData ? getDayCount(getDays(withdrawalCounts)) : 0;
@@ -433,7 +469,13 @@ function RobotSchoolDashboard() {
                         
                         flyers: report.flyers || 0,
                         touchAndTry: report.touchTry || 0,
-                        trialLessons: report.trialLessons || 0,
+                        // trialLessons: report.trialLessons || 0, // 日報の手入力値(使わない場合はコメントアウト)
+                        
+                        // ★自動集計された体験会データ
+                        trialApp: dTrialApp,
+                        eventApp: dEventApp,
+                        trialExec: dTrialExec,
+                        eventExec: dEventExec,
 
                         totalStudents: currentStudents, 
                         withdrawals_neg: -dWithdraw,
@@ -446,7 +488,7 @@ function RobotSchoolDashboard() {
                 const weekly = weeks.map(week => {
                     let wVal = { 
                         enroll: 0, withdraw: 0, recess: 0, return: 0, transfer: 0, graduate: 0, transferIn: 0,
-                        flyers: 0, touch: 0, trials: 0
+                        flyers: 0, touch: 0, trialApp: 0, eventApp: 0, trialExec: 0, eventExec: 0
                     };
                     
                     for (let i = week.startDay - 1; i < week.endDay; i++) {
@@ -458,9 +500,14 @@ function RobotSchoolDashboard() {
                             wVal.return += daily[i].returns;
                             wVal.transfer += daily[i].transfers;
                             wVal.graduate += daily[i].graduates;
+                            
                             wVal.flyers += daily[i].flyers;
                             wVal.touch += daily[i].touchAndTry;
-                            wVal.trials += daily[i].trialLessons;
+                            
+                            wVal.trialApp += daily[i].trialApp;
+                            wVal.eventApp += daily[i].eventApp;
+                            wVal.trialExec += daily[i].trialExec;
+                            wVal.eventExec += daily[i].eventExec;
                         }
                     }
 
@@ -474,9 +521,15 @@ function RobotSchoolDashboard() {
                         returns: wVal.return,
                         transfers: wVal.transfer,
                         graduates: wVal.graduate,
+                        
                         flyers: wVal.flyers,
                         touchAndTry: wVal.touch,
-                        trialLessons: wVal.trials,
+                        
+                        trialApp: wVal.trialApp,
+                        eventApp: wVal.eventApp,
+                        trialExec: wVal.trialExec,
+                        eventExec: wVal.eventExec,
+
                         totalStudents: currentStudents,
                         withdrawals_neg: -wVal.withdraw,
                         recesses_neg: -wVal.recess,
@@ -488,11 +541,14 @@ function RobotSchoolDashboard() {
                 const netChange = (val.enroll + val.transferIn) - (val.withdraw + val.transfer + val.graduate);
                 currentStudents += netChange;
 
-                let mFlyers = 0, mTouch = 0, mTrials = 0;
+                let mFlyers = 0, mTouch = 0, mTrialApp = 0, mEventApp = 0, mTrialExec = 0, mEventExec = 0;
                 daily.forEach(d => {
                     mFlyers += d.flyers;
                     mTouch += d.touchAndTry;
-                    mTrials += d.trialLessons;
+                    mTrialApp += d.trialApp;
+                    mEventApp += d.eventApp;
+                    mTrialExec += d.trialExec;
+                    mEventExec += d.eventExec;
                 });
 
                 return {
@@ -506,9 +562,15 @@ function RobotSchoolDashboard() {
                     transfers: val.transfer,
                     graduates: val.graduate,
                     totalStudents: currentStudents,
+                    
                     flyers: mFlyers,
                     touchAndTry: mTouch,
-                    trialLessons: mTrials,
+                    
+                    trialApp: mTrialApp,
+                    eventApp: mEventApp,
+                    trialExec: mTrialExec,
+                    eventExec: mEventExec,
+
                     enrollmentRate: "0.0",
                     withdrawals_neg: -val.withdraw,
                     recesses_neg: -val.recess,
@@ -519,6 +581,7 @@ function RobotSchoolDashboard() {
             });
         });
 
+        // 合計ロジック ('All')
         dataMap['All'] = MONTHS_LIST.map((month, idx) => {
             const { weeks, daysInMonth } = getWeeksStruct(targetYear, idx);
 
@@ -526,18 +589,21 @@ function RobotSchoolDashboard() {
                 name: month,
                 budgetRevenue: 0, actualRevenue: 0,
                 newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0,
-                totalStudents: 0, flyers: 0, touchAndTry: 0, trialLessons: 0,
+                totalStudents: 0, flyers: 0, touchAndTry: 0,
+                trialApp: 0, eventApp: 0, trialExec: 0, eventExec: 0,
                 withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0,
+                
                 daily: Array.from({ length: daysInMonth }, (_, i) => ({ 
                     name: `${i+1}日`, 
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
-                    flyers: 0, touchAndTry: 0, trialLessons: 0,
+                    flyers: 0, touchAndTry: 0, trialApp: 0, eventApp: 0, trialExec: 0, eventExec: 0,
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 })),
+                
                 weekly: weeks.map(w => ({
                     name: w.name,
                     newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, 
-                    flyers: 0, touchAndTry: 0, trialLessons: 0,
+                    flyers: 0, touchAndTry: 0, trialApp: 0, eventApp: 0, trialExec: 0, eventExec: 0,
                     withdrawals_neg: 0, recesses_neg: 0, transfers_neg: 0, graduates_neg: 0 
                 }))
             };
@@ -571,7 +637,7 @@ function RobotSchoolDashboard() {
     };
 
     const totals = useMemo(() => {
-        if (!displayData || displayData.length === 0) return { newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0, flyers: 0, touchAndTry: 0, trialLessons: 0 };
+        if (!displayData || displayData.length === 0) return { newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0, flyers: 0, touchAndTry: 0, trialApp: 0, eventApp: 0, trialExec: 0, eventExec: 0 };
         return displayData.reduce((acc, curr) => ({
             newEnrollments: acc.newEnrollments + (curr.newEnrollments || 0),
             transferIns: acc.transferIns + (curr.transferIns || 0),
@@ -582,8 +648,13 @@ function RobotSchoolDashboard() {
             graduates: acc.graduates + (curr.graduates || 0),
             flyers: acc.flyers + (curr.flyers || 0),
             touchAndTry: acc.touchAndTry + (curr.touchAndTry || 0),
-            trialLessons: acc.trialLessons + (curr.trialLessons || 0),
-        }), { newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0, flyers: 0, touchAndTry: 0, trialLessons: 0 });
+            
+            trialApp: acc.trialApp + (curr.trialApp || 0),
+            eventApp: acc.eventApp + (curr.eventApp || 0),
+            trialExec: acc.trialExec + (curr.trialExec || 0),
+            eventExec: acc.eventExec + (curr.eventExec || 0),
+
+        }), { newEnrollments: 0, transferIns: 0, withdrawals: 0, recesses: 0, returns: 0, transfers: 0, graduates: 0, flyers: 0, touchAndTry: 0, trialApp: 0, eventApp: 0, trialExec: 0, eventExec: 0 });
     }, [displayData]);
 
     const currentTotalStudents = displayData.length > 0 ? (viewMode === 'annual' ? displayData[displayData.length-1].totalStudents : displayData[0].totalStudents) : 0;
@@ -652,7 +723,6 @@ function RobotSchoolDashboard() {
 
         const existingReport = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dateStr);
         if (existingReport) {
-            // 休校かどうかで初期値を分岐
             const isClosed = existingReport.weather === 'closed';
             setDailyReportInput({
                 weather: existingReport.weather || 'sunny',
@@ -667,7 +737,6 @@ function RobotSchoolDashboard() {
         setIsInputModalOpen(true);
     };
 
-    // モーダル内での保存
     const handleSaveDailyReport = async () => {
         if (selectedCampusId === 'All') return;
         setIsSavingReport(true);
@@ -693,7 +762,6 @@ function RobotSchoolDashboard() {
         setExpandedCampusId(expandedCampusId === campusId ? null : campusId);
     };
 
-    // 天気ボタンクリック時のハンドラ (休校時の数値リセット制御)
     const handleWeatherSelect = (weatherId) => {
         if (weatherId === 'closed') {
             setDailyReportInput({ ...dailyReportInput, weather: weatherId, flyers: 0, touchTry: 0, trialLessons: 0 });
@@ -719,7 +787,7 @@ function RobotSchoolDashboard() {
             cloudy: { i: Cloud, c: 'text-gray-500' },
             rainy: { i: CloudRain, c: 'text-blue-500' },
             snowy: { i: Snowflake, c: 'text-cyan-500' },
-            closed: { i: Ban, c: 'text-rose-500' } // 休校アイコン定義
+            closed: { i: Ban, c: 'text-rose-500' }
         };
 
         const blanks = Array.from({ length: firstDay }, (_, i) => <div key={`blank-${i}`} className="h-24 bg-slate-50 border border-slate-100"></div>);
@@ -757,7 +825,6 @@ function RobotSchoolDashboard() {
                                 <>
                                     <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>門配</span><span className="font-bold text-slate-700">{report.flyers}</span></div>
                                     <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>T&T</span><span className="font-bold text-slate-700">{report.touchTry}</span></div>
-                                    <div className="text-[10px] text-slate-500 bg-slate-50 px-1 rounded flex justify-between items-center"><span>体験</span><span className="font-bold text-slate-700">{report.trialLessons}</span></div>
                                 </>
                             )}
                         </div>
@@ -1039,8 +1106,12 @@ function RobotSchoolDashboard() {
                                         <YAxis yAxisId="right" orientation="right" />
                                         <Tooltip />
                                         <Legend />
-                                        <Bar yAxisId="left" dataKey="flyers" name="チラシ配布" fill="#94a3b8" />
+                                        <Bar yAxisId="left" dataKey="flyers" name="門配" fill="#94a3b8" />
                                         <Line yAxisId="right" type="monotone" dataKey="newEnrollments" name="入会数" stroke="#10b981" strokeWidth={3} />
+                                        <Bar yAxisId="left" dataKey="trialApp" name="体験会申込" stackId="application" fill="#3b82f6" />
+                                        <Bar yAxisId="left" dataKey="eventApp" name="イベント申込" stackId="application" fill="#93c5fd" />
+                                        <Bar yAxisId="left" dataKey="trialExec" name="体験会実施" stackId="execution" fill="#f97316" />
+                                        <Bar yAxisId="left" dataKey="eventExec" name="イベント実施" stackId="execution" fill="#fdba74" />
                                     </ComposedChart>
                                 </ResponsiveContainer>
                             </div>
