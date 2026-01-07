@@ -58,14 +58,14 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useMemo, useEffect, useRef } from "react";
         import { createRoot } from "react-dom/client";
-        import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+        import { BarChart, Bar, AreaChart, Area, LineChart, Line, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from "recharts";
         import { 
             LayoutDashboard, Users, TrendingUp, Calendar, DollarSign, Activity, Loader2, 
             Settings, Plus, Trash2, School, FileText, Save, Sun, Cloud, CloudRain, Snowflake, Ban, PenTool, 
-            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight
+            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X
         } from "lucide-react";
         import { initializeApp } from "firebase/app";
-        import { getFirestore, collection, doc, setDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from "firebase/firestore";
+        import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from "firebase/firestore";
 
         // ==========================================
         // 1. Firebase Config & Utilities
@@ -109,9 +109,9 @@
         const normalizeString = (str) => (!str ? "" : str.replace(/[\s\u3000]/g, "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)));
 
         // ==========================================
-        // 2. Data Processing Logic (Ported from V2)
+        // 2. Data Processing Logic
         // ==========================================
-        const processDashboardData = (campuses, enrollments, statusChanges, transfers, dailyReports, financials, targetYear) => {
+        const processDashboardData = (campuses, enrollments, statusChanges, transfers, dailyReports, financials, trialApps, targetYear) => {
             const sheetNameToIdMap = {};
             campuses.forEach(c => {
                 const key = c.sheetName || c.name;
@@ -119,16 +119,26 @@
                 sheetNameToIdMap[normalizeString(key)] = c.id;
             });
 
-            // Helper to resolve campus ID from string
-            const resolveCampusId = (name) => sheetNameToIdMap[name] || sheetNameToIdMap[normalizeString(name)];
-
             // Initialize Monthly Data Structure
             const monthlyStats = MONTHS_LIST.map(m => ({
                 name: m,
                 revenue: 0,
                 students: 0,
+                // Student Flow
                 newEnrollments: 0,
-                withdrawals: 0
+                transferIns: 0,
+                returns: 0,
+                withdrawals: 0,
+                withdrawals_neg: 0,
+                transfers_neg: 0,
+                graduates_neg: 0,
+                recesses_neg: 0,
+                // Marketing
+                flyers: 0,
+                trialApp: 0,
+                trialExec: 0,
+                eventApp: 0,
+                eventExec: 0
             }));
 
             // 1. Calculate Base Student Count (Before Target Year)
@@ -144,14 +154,14 @@
                 return count;
             };
             const prevEnroll = countBefore(enrollments);
-            const prevTransferIn = countBefore(transfers); // Assume transfers are ins
+            const prevTransferIn = countBefore(transfers); 
             const prevWithdraw = countBefore(statusChanges, "退会");
             const prevGrad = countBefore(statusChanges, "卒業");
             const prevTransferOut = countBefore(statusChanges, "転校");
             
             baseStudentCount = (prevEnroll + prevTransferIn) - (prevWithdraw + prevGrad + prevTransferOut);
 
-            // 2. Iterate Months to build trend
+            // 2. Iterate Months
             let currentStudents = baseStudentCount;
 
             monthlyStats.forEach((stat, idx) => {
@@ -159,32 +169,75 @@
                 let jsMonth = idx + 3; // 0=Apr
                 if (jsMonth > 11) { jsMonth -= 12; targetMonthYear++; }
                 
-                // Count events in this month
+                // Helper to filter events in this month
                 const filterInMonth = (list, typeFilter = null) => list.filter(item => {
-                    const d = parseDate(item.date);
+                    const d = parseDate(item.date || item.trialDate); // Handle trialDate for execution
                     if (!d) return false;
                     if (typeFilter && (!item.type || !item.type.includes(typeFilter))) return false;
                     return d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth;
                 }).length;
 
+                // Student Flow Counts
                 const mEnroll = filterInMonth(enrollments);
                 const mTransferIn = filterInMonth(transfers);
+                const mReturn = filterInMonth(statusChanges, "復会");
+                
                 const mWithdraw = filterInMonth(statusChanges, "退会");
                 const mGrad = filterInMonth(statusChanges, "卒業");
                 const mTransferOut = filterInMonth(statusChanges, "転校");
-                const mReturn = filterInMonth(statusChanges, "復会");
+                const mRecess = filterInMonth(statusChanges, "休会");
 
+                // Update Students
                 const netChange = (mEnroll + mTransferIn + mReturn) - (mWithdraw + mGrad + mTransferOut);
                 currentStudents += netChange;
 
+                // Assign Stats
                 stat.students = currentStudents;
                 stat.newEnrollments = mEnroll;
+                stat.transferIns = mTransferIn;
+                stat.returns = mReturn;
+                
                 stat.withdrawals = mWithdraw;
+                stat.withdrawals_neg = -mWithdraw;
+                stat.transfers_neg = -mTransferOut;
+                stat.graduates_neg = -mGrad;
+                stat.recesses_neg = -mRecess;
 
-                // Revenue Aggregation from Financials
-                // Financials are expected to be { date, amount, type/category, campusId }
+                // Marketing Counts
+                // Daily Reports Sum for Flyers
+                const mFlyers = dailyReports.reduce((sum, r) => {
+                    const d = parseDate(r.date);
+                    if (d && d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth) {
+                        return sum + (Number(r.flyers) || 0);
+                    }
+                    return sum;
+                }, 0);
+                stat.flyers = mFlyers;
+
+                // Trial Apps (Using trial_applications collection)
+                // Assuming trialApps has 'date' for application and 'trialDate' for execution
+                const mTrialApp = filterInMonth(trialApps.filter(a => !a.type?.includes('イベント')), null); 
+                const mEventApp = filterInMonth(trialApps.filter(a => a.type?.includes('イベント')), null);
+                
+                // For Execution, we look at 'trialDate'
+                const mTrialExec = trialApps.filter(a => {
+                    const d = parseDate(a.trialDate);
+                    return d && d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth && !a.type?.includes('イベント');
+                }).length;
+                
+                const mEventExec = trialApps.filter(a => {
+                    const d = parseDate(a.trialDate);
+                    return d && d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth && a.type?.includes('イベント');
+                }).length;
+
+                stat.trialApp = mTrialApp;
+                stat.eventApp = mEventApp;
+                stat.trialExec = mTrialExec;
+                stat.eventExec = mEventExec;
+
+                // Revenue Aggregation
                 const monthRevenue = financials.reduce((sum, fin) => {
-                    const d = parseDate(fin.date); // CSV date string or timestamp
+                    const d = parseDate(fin.date); 
                     if (!d) return sum;
                     if (d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth) {
                         return sum + (Number(fin.amount) || 0);
@@ -200,7 +253,18 @@
         // ==========================================
         // 3. UI Components
         // ==========================================
-        const StatCard = ({ title, value, subValue, icon: Icon, colorClass }) => (
+        const Notification = ({ msg, type, onClose }) => {
+            if (!msg) return null;
+            return (
+                <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center gap-3 animate-in slide-in-from-top-5 ${type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>
+                    {type === 'error' ? <AlertCircle className="w-5 h-5"/> : <CheckCircle2 className="w-5 h-5"/>}
+                    <span className="text-sm font-medium">{msg}</span>
+                    <button onClick={onClose}><X className="w-4 h-4 opacity-50 hover:opacity-100"/></button>
+                </div>
+            );
+        };
+
+        const StatCard = ({ title, value, subValue, icon: Icon, colorClass, details }) => (
             <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-l-transparent hover:border-l-brand-orange transition-all duration-200 group">
                 <div className="flex justify-between items-start">
                     <div>
@@ -212,6 +276,15 @@
                     </div>
                 </div>
                 {subValue && <div className="mt-4 flex items-center text-sm"><span className="text-gray-400 font-medium">{subValue}</span></div>}
+                {details && (
+                    <div className="mt-4 pt-3 border-t border-slate-100 space-y-1">
+                        {details.map((item, idx) => (
+                            <div key={idx} className="flex justify-between text-xs text-slate-500">
+                                <span>{item.label}</span><span className="font-medium text-slate-700">{item.value}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         );
 
@@ -263,6 +336,7 @@
             const [selectedCampusId, setSelectedCampusId] = useState(null);
             const [campusList, setCampusList] = useState([]);
             const [selectedYear, setSelectedYear] = useState(2024);
+            const [notification, setNotification] = useState(null);
             
             // Global Data State
             const [allData, setAllData] = useState({
@@ -270,20 +344,27 @@
                 statusChanges: [],
                 transfers: [],
                 dailyReports: [],
-                financials: []
+                financials: [],
+                trialApps: []
             });
+
+            const showNotify = (msg, type='success') => {
+                setNotification({ msg, type });
+                setTimeout(() => setNotification(null), 3000);
+            };
 
             // Fetch Data
             const fetchData = async () => {
                 if (!isFirebaseInitialized) return;
                 try {
-                    const [campuses, enroll, status, trans, reports, finance] = await Promise.all([
+                    const [campuses, enroll, status, trans, reports, finance, trials] = await Promise.all([
                         getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
                         getDocs(collection(db, "enrollments")),
                         getDocs(collection(db, "status_changes")),
                         getDocs(collection(db, "transfers")),
                         getDocs(collection(db, "daily_reports")),
-                        getDocs(collection(db, "financials"))
+                        getDocs(collection(db, "financials")),
+                        getDocs(collection(db, "trial_applications"))
                     ]);
 
                     setCampusList(campuses.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -292,7 +373,8 @@
                         statusChanges: status.docs.map(d => ({id:d.id, ...d.data()})),
                         transfers: trans.docs.map(d => ({id:d.id, ...d.data()})),
                         dailyReports: reports.docs.map(d => ({id:d.id, ...d.data()})),
-                        financials: finance.docs.map(d => ({id:d.id, ...d.data()}))
+                        financials: finance.docs.map(d => ({id:d.id, ...d.data()})),
+                        trialApps: trials.docs.map(d => ({id:d.id, ...d.data()}))
                     });
                 } catch (e) { console.error("Fetch Error:", e); }
             };
@@ -303,65 +385,61 @@
             const handleEnterSchool = (id) => { setSelectedCampusId(id); setConsoleMode('school'); };
             const handleBack = () => { setConsoleMode('select'); setSelectedCampusId(null); };
 
-            // Render Modes
-            if (consoleMode === 'select') {
-                return (
-                    <div className="min-h-screen bg-brand-slate flex items-center justify-center p-6 fade-in">
-                        <div className="max-w-4xl w-full">
-                            <div className="text-center mb-12">
-                                <h1 className="text-4xl font-bold text-brand-blue mb-4 tracking-tight">Robot School Dashboard V3</h1>
-                                <p className="text-gray-500">管理コンソールを選択してください</p>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                <div onClick={handleEnterHQ} className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-xl hover:border-brand-blue/30 transition-all group relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-blue/5 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
-                                    <div className="relative z-10">
-                                        <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-blue/20">
-                                            <LayoutDashboard className="w-8 h-8 text-white" />
-                                        </div>
-                                        <h2 className="text-2xl font-bold text-gray-800 mb-2">本部コンソール</h2>
-                                        <p className="text-sm text-gray-500 mb-6">全校データの閲覧・管理</p>
-                                        <span className="inline-flex items-center text-brand-blue font-bold text-sm group-hover:translate-x-1 transition-transform">ログイン <ArrowRight className="ml-2 w-4 h-4" /></span>
-                                    </div>
+            return (
+                <>
+                    <Notification msg={notification?.msg} type={notification?.type} onClose={()=>setNotification(null)} />
+                    {consoleMode === 'select' && (
+                        <div className="min-h-screen bg-brand-slate flex items-center justify-center p-6 fade-in">
+                            <div className="max-w-4xl w-full">
+                                <div className="text-center mb-12">
+                                    <h1 className="text-4xl font-bold text-brand-blue mb-4 tracking-tight">Robot School Dashboard V3</h1>
+                                    <p className="text-gray-500">管理コンソールを選択してください</p>
                                 </div>
-                                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-orange/5 rounded-bl-full -mr-8 -mt-8"></div>
-                                    <div className="relative z-10">
-                                        <div className="w-16 h-16 bg-brand-orange rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-orange/20">
-                                            <School className="w-8 h-8 text-white" />
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div onClick={handleEnterHQ} className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-xl hover:border-brand-blue/30 transition-all group relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-blue/5 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
+                                        <div className="relative z-10">
+                                            <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-blue/20">
+                                                <LayoutDashboard className="w-8 h-8 text-white" />
+                                            </div>
+                                            <h2 className="text-2xl font-bold text-gray-800 mb-2">本部コンソール</h2>
+                                            <p className="text-sm text-gray-500 mb-6">全校データの閲覧・管理</p>
+                                            <span className="inline-flex items-center text-brand-blue font-bold text-sm group-hover:translate-x-1 transition-transform">ログイン <ArrowRight className="ml-2 w-4 h-4" /></span>
                                         </div>
-                                        <h2 className="text-2xl font-bold text-gray-800 mb-2">校舎コンソール</h2>
-                                        <p className="text-sm text-gray-500 mb-6">日報・計画・収支入力</p>
-                                        <div className="mt-4 space-y-2 max-h-48 overflow-y-auto pr-2">
-                                            {campusList.map(c => (
-                                                <button key={c.id} onClick={() => handleEnterSchool(c.id)} className="w-full text-left px-4 py-3 rounded-lg border border-gray-100 hover:border-brand-orange hover:bg-orange-50 transition-colors flex items-center justify-between group">
-                                                    <span className="font-bold text-gray-700 group-hover:text-brand-orange">{c.name}</span>
-                                                    <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-orange" />
-                                                </button>
-                                            ))}
+                                    </div>
+                                    <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-orange/5 rounded-bl-full -mr-8 -mt-8"></div>
+                                        <div className="relative z-10">
+                                            <div className="w-16 h-16 bg-brand-orange rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-orange/20">
+                                                <School className="w-8 h-8 text-white" />
+                                            </div>
+                                            <h2 className="text-2xl font-bold text-gray-800 mb-2">校舎コンソール</h2>
+                                            <p className="text-sm text-gray-500 mb-6">日報・計画・収支入力</p>
+                                            <div className="mt-4 space-y-2 max-h-48 overflow-y-auto pr-2">
+                                                {campusList.map(c => (
+                                                    <button key={c.id} onClick={() => handleEnterSchool(c.id)} className="w-full text-left px-4 py-3 rounded-lg border border-gray-100 hover:border-brand-orange hover:bg-orange-50 transition-colors flex items-center justify-between group">
+                                                        <span className="font-bold text-gray-700 group-hover:text-brand-orange">{c.name}</span>
+                                                        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-orange" />
+                                                    </button>
+                                                ))}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                );
-            }
+                    )}
 
-            if (consoleMode === 'hq') {
-                return <HQConsole onBack={handleBack} campusList={campusList} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={fetchData} />;
-            }
-            if (consoleMode === 'school') {
-                const targetCampus = campusList.find(c => c.id === selectedCampusId);
-                return <SchoolConsole onBack={handleBack} campus={targetCampus} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={fetchData} />;
-            }
-            return null;
+                    {consoleMode === 'hq' && <HQConsole onBack={handleBack} campusList={campusList} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={fetchData} showNotify={showNotify} />}
+                    {consoleMode === 'school' && <SchoolConsole onBack={handleBack} campus={campusList.find(c=>c.id===selectedCampusId)} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={fetchData} showNotify={showNotify} />}
+                </>
+            );
         }
 
         // ==========================================
         // 5. HQ Console
         // ==========================================
-        function HQConsole({ onBack, campusList, allData, selectedYear, setSelectedYear, refreshData }) {
+        function HQConsole({ onBack, campusList, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
             const [activeTab, setActiveTab] = useState('dashboard');
             const [newCampusName, setNewCampusName] = useState("");
             const [newCampusId, setNewCampusId] = useState("");
@@ -375,6 +453,7 @@
                     allData.transfers, 
                     allData.dailyReports, 
                     allData.financials,
+                    allData.trialApps,
                     Number(selectedYear)
                 );
             }, [allData, campusList, selectedYear]);
@@ -383,20 +462,36 @@
                 return dashboardData.reduce((acc, curr) => ({
                     revenue: acc.revenue + curr.revenue,
                     newEnrollments: acc.newEnrollments + curr.newEnrollments,
-                    withdrawals: acc.withdrawals + curr.withdrawals
-                }), { revenue: 0, newEnrollments: 0, withdrawals: 0 });
+                    withdrawals: acc.withdrawals + curr.withdrawals,
+                    transferIns: acc.transferIns + curr.transferIns,
+                    returns: acc.returns + curr.returns,
+                    graduates: acc.graduates_neg + curr.graduates_neg, // neg
+                    transfers: acc.transfers_neg + curr.transfers_neg, // neg
+                    flyers: acc.flyers + curr.flyers,
+                    trialApp: acc.trialApp + curr.trialApp,
+                    trialExec: acc.trialExec + curr.trialExec,
+                }), { revenue: 0, newEnrollments: 0, withdrawals: 0, transferIns: 0, returns: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0 });
             }, [dashboardData]);
             
             const currentTotalStudents = dashboardData[dashboardData.length - 1]?.students || 0;
 
             const handleAddCampus = async () => {
-                if (!newCampusId || !newCampusName) return alert("必須項目が空です");
+                if (!newCampusId || !newCampusName) return showNotify("必須項目が空です", 'error');
                 try {
                     await setDoc(doc(db, "campuses", newCampusId), { id: newCampusId, name: newCampusName, createdAt: serverTimestamp() });
                     setNewCampusId(""); setNewCampusName("");
                     refreshData();
-                    alert("校舎を追加しました");
-                } catch(e) { alert("エラー: " + e.message); }
+                    showNotify("校舎を追加しました");
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+
+            const handleDeleteCampus = async (id, name) => {
+                if (!confirm(`${name} を削除しますか？`)) return;
+                try {
+                    await deleteDoc(doc(db, "campuses", id));
+                    refreshData();
+                    showNotify("校舎を削除しました");
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
             };
 
             return (
@@ -407,7 +502,7 @@
                             <span className="font-bold text-lg text-gray-800">本部コンソール</span>
                         </div>
                         <nav className="flex-1 p-4 space-y-1">
-                            {[{id:'dashboard',l:'ダッシュボード',i:Activity}, {id:'settings',l:'校舎管理',i:Settings}].map(t => (
+                            {[{id:'dashboard',l:'サマリー',i:Activity}, {id:'students',l:'生徒管理',i:Users}, {id:'marketing',l:'マーケティング',i:Megaphone}, {id:'settings',l:'校舎管理',i:Settings}].map(t => (
                                 <button key={t.id} onClick={() => setActiveTab(t.id)} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === t.id ? 'bg-brand-blue text-white shadow-md shadow-brand-blue/30' : 'text-gray-500 hover:bg-gray-50'}`}>
                                     <t.i className="w-5 h-5 mr-3" />{t.l}
                                 </button>
@@ -417,7 +512,7 @@
                     </aside>
                     <main className="flex-1 overflow-y-auto">
                         <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
-                            <h2 className="text-xl font-bold text-gray-800">{activeTab==='dashboard'?'全校サマリー':'校舎管理'}</h2>
+                            <h2 className="text-xl font-bold text-gray-800">{{dashboard:'全校サマリー', students:'生徒数・入退会', marketing:'集客・ファネル', settings:'校舎マスタ管理'}[activeTab]}</h2>
                             <div className="flex items-center space-x-4">
                                 <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-blue outline-none">
                                     {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
@@ -427,31 +522,77 @@
                         </header>
                         <div className="p-8 max-w-7xl mx-auto">
                             {activeTab === 'dashboard' && (
-                                <div className="space-y-8">
+                                <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                         <StatCard title="年間売上 (CSV集計)" value={formatYen(totals.revenue)} subValue="アップロード済データ計" icon={DollarSign} colorClass="text-brand-blue" />
                                         <StatCard title="現在在籍数" value={`${currentTotalStudents}名`} subValue="推移末尾" icon={Users} colorClass="text-brand-orange" />
                                         <StatCard title="年間入会" value={`${totals.newEnrollments}名`} subValue="累計" icon={TrendingUp} colorClass="text-emerald-500" />
                                         <StatCard title="年間退会" value={`${totals.withdrawals}名`} subValue="累計" icon={TrendingUp} colorClass="text-rose-500" />
                                     </div>
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-80">
-                                            <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 売上推移</h3>
-                                            <ResponsiveContainer width="100%" height="90%">
-                                                <AreaChart data={dashboardData}><defs><linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#1E51A2" stopOpacity={0.8}/><stop offset="95%" stopColor="#1E51A2" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="name"/><YAxis/><Tooltip formatter={(value)=>formatYen(value)}/><Area type="monotone" dataKey="revenue" stroke="#1E51A2" fillOpacity={1} fill="url(#colorRev)"/></AreaChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-80">
-                                            <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Users className="w-5 h-5 mr-2 text-brand-orange"/> 生徒数推移</h3>
-                                            <ResponsiveContainer width="100%" height="90%">
-                                                <BarChart data={dashboardData}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="name"/><YAxis/><Tooltip/><Bar dataKey="students" fill="#F3981E" radius={[4,4,0,0]}/></BarChart>
-                                            </ResponsiveContainer>
-                                        </div>
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-80">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 売上推移</h3>
+                                        <ResponsiveContainer width="100%" height="90%">
+                                            <AreaChart data={dashboardData}><defs><linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#1E51A2" stopOpacity={0.8}/><stop offset="95%" stopColor="#1E51A2" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="name"/><YAxis/><Tooltip formatter={(value)=>formatYen(value)}/><Area type="monotone" dataKey="revenue" stroke="#1E51A2" fillOpacity={1} fill="url(#colorRev)"/></AreaChart>
+                                        </ResponsiveContainer>
                                     </div>
                                 </div>
                             )}
+
+                            {activeTab === 'students' && (
+                                <div className="space-y-8 animate-in fade-in">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                        <StatCard title="年間増加数" value={`${totals.newEnrollments + totals.transferIns + totals.returns}名`} subValue="入会+転入+復会" icon={Users} colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}, {label:'復会', value:totals.returns}]} />
+                                        <StatCard title="年間減少数" value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} subValue="退会+転校+卒業" icon={Users} colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} />
+                                        <StatCard title="純増数" value={`${(totals.newEnrollments + totals.transferIns + totals.returns) - (totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates))}名`} subValue="年間通算" icon={TrendingUp} colorClass="text-brand-blue" />
+                                    </div>
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6">詳細生徒数増減フロー</h3>
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={dashboardData} stackOffset="sign">
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                <XAxis dataKey="name" />
+                                                <YAxis />
+                                                <Tooltip />
+                                                <Legend />
+                                                <ReferenceLine y={0} stroke="#000" />
+                                                <Bar dataKey="newEnrollments" name="入会" fill="#10b981" stackId="stack" />
+                                                <Bar dataKey="returns" name="復会" fill="#34d399" stackId="stack" />
+                                                <Bar dataKey="transferIns" name="転入" fill="#06b6d4" stackId="stack" />
+                                                <Bar dataKey="withdrawals_neg" name="退会" fill="#ef4444" stackId="stack" />
+                                                <Bar dataKey="recesses_neg" name="休会" fill="#f59e0b" stackId="stack" />
+                                                <Bar dataKey="transfers_neg" name="転校" fill="#f97316" stackId="stack" />
+                                                <Bar dataKey="graduates_neg" name="卒業" fill="#a855f7" stackId="stack" />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'marketing' && (
+                                <div className="space-y-8 animate-in fade-in">
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6">集客ファネル分析</h3>
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <ComposedChart data={dashboardData}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                <XAxis dataKey="name" />
+                                                <YAxis yAxisId="left" orientation="left" />
+                                                <YAxis yAxisId="right" orientation="right" />
+                                                <Tooltip />
+                                                <Legend />
+                                                <Bar yAxisId="left" dataKey="flyers" name="門配数" fill="#94a3b8" />
+                                                <Bar yAxisId="left" dataKey="trialApp" name="体験申込" stackId="app" fill="#3b82f6" />
+                                                <Bar yAxisId="left" dataKey="eventApp" name="イベント申込" stackId="app" fill="#93c5fd" />
+                                                <Bar yAxisId="left" dataKey="trialExec" name="体験実施" stackId="exec" fill="#f97316" />
+                                                <Line yAxisId="right" type="monotone" dataKey="newEnrollments" name="入会数" stroke="#10b981" strokeWidth={3} />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            )}
+
                             {activeTab === 'settings' && (
-                                <div className="space-y-8">
+                                <div className="space-y-8 animate-in fade-in">
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
                                         <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Plus className="w-5 h-5 mr-2 text-brand-blue"/> 新規校舎登録</h3>
                                         <div className="flex gap-4 items-end">
@@ -462,7 +603,14 @@
                                     </div>
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
                                         <h3 className="text-lg font-bold text-gray-800 mb-6">登録済み校舎 ({campusList.length})</h3>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{campusList.map(c=><div key={c.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50 flex justify-between"><div><div className="font-bold text-gray-700">{c.name}</div><div className="text-xs text-gray-400">{c.id}</div></div><div className="w-2 h-2 rounded-full bg-emerald-400"></div></div>)}</div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {campusList.map(c=>(
+                                                <div key={c.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50 flex justify-between items-center">
+                                                    <div><div className="font-bold text-gray-700">{c.name}</div><div className="text-xs text-gray-400">{c.id}</div></div>
+                                                    <button onClick={() => handleDeleteCampus(c.id, c.name)} className="text-gray-400 hover:text-red-500 p-2"><Trash2 className="w-4 h-4"/></button>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -475,12 +623,35 @@
         // ==========================================
         // 6. School Console
         // ==========================================
-        function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData }) {
+        function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
             const [activeTab, setActiveTab] = useState('daily');
             const [selectedMonth, setSelectedMonth] = useState('4月');
             const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
             const [inputData, setInputData] = useState({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
             const [uploading, setUploading] = useState(false);
+            const [planData, setPlanData] = useState({});
+            const [isSavingPlan, setIsSavingPlan] = useState(false);
+
+            // Fetch Plan Data when tab changes or selection changes
+            useEffect(() => {
+                if (activeTab === 'plan' && campus) {
+                    const fetchPlan = async () => {
+                        try {
+                            const docRef = doc(db, "campus_plans", `${campus.id}_${selectedYear}`);
+                            const docSnap = await getDoc(docRef);
+                            setPlanData(docSnap.exists() ? docSnap.data().plans : createInitialPlanData());
+                        } catch (e) { console.error(e); }
+                    };
+                    fetchPlan();
+                }
+            }, [activeTab, campus, selectedYear]);
+
+            const createInitialPlanData = () => {
+                return MONTHS_LIST.reduce((acc, month) => {
+                    acc[month] = { enrollments: 0, trials: 0, touchTry: 0, flyers: 0, rate: 0 };
+                    return acc;
+                }, {});
+            };
 
             // Fetch existing daily report when date changes
             useEffect(() => {
@@ -511,8 +682,36 @@
                         updatedAt: serverTimestamp()
                     });
                     refreshData();
-                    alert("保存しました");
-                } catch(e) { alert("エラー: " + e.message); }
+                    showNotify("日報を保存しました");
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+
+            const handlePlanChange = (month, field, value) => {
+                setPlanData(prev => {
+                    const newData = { ...prev };
+                    newData[month] = { ...newData[month], [field]: Number(value) };
+                    // Recalculate rate
+                    if (field === 'enrollments' || field === 'trials') {
+                        const enr = field === 'enrollments' ? Number(value) : (newData[month].enrollments || 0);
+                        const tri = field === 'trials' ? Number(value) : (newData[month].trials || 0);
+                        newData[month].rate = tri > 0 ? ((enr / tri) * 100).toFixed(1) : 0;
+                    }
+                    return newData;
+                });
+            };
+
+            const handleSavePlan = async () => {
+                if (!campus) return;
+                setIsSavingPlan(true);
+                try {
+                    await setDoc(doc(db, "campus_plans", `${campus.id}_${selectedYear}`), { 
+                        campusId: campus.id, 
+                        year: selectedYear, 
+                        plans: planData, 
+                        updatedAt: serverTimestamp() 
+                    });
+                    showNotify("年間計画を保存しました");
+                } catch (e) { showNotify("保存失敗: " + e.message, 'error'); } finally { setIsSavingPlan(false); }
             };
 
             const handleCsvUpload = async (data) => {
@@ -526,8 +725,8 @@
                     });
                     await batch.commit();
                     refreshData();
-                    alert(`${data.length}件のデータを取り込みました`);
-                } catch (e) { alert("エラー: " + e.message); } finally { setUploading(false); }
+                    showNotify(`${data.length}件のデータを取り込みました`);
+                } catch (e) { showNotify("エラー: " + e.message, 'error'); } finally { setUploading(false); }
             };
 
             if (!campus) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-brand-blue"/></div>;
@@ -562,7 +761,7 @@
                         </header>
                         <div className="p-8 max-w-5xl mx-auto">
                             {activeTab === 'daily' && (
-                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in">
                                     <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                                         <div className="flex justify-between mb-4">
                                             <h3 className="font-bold text-gray-700 flex items-center"><Calendar className="w-4 h-4 mr-2"/> {selectedYear}年 {selectedMonth}</h3>
@@ -571,15 +770,27 @@
                                         <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
                                             {['日','月','火','水','木','金','土'].map((d,i)=><div key={i} className="bg-gray-50 text-center py-2 text-xs font-bold text-gray-500">{d}</div>)}
                                             {Array.from({length:31},(_,i)=>i+1).map(d=>{
-                                                const dateStr = `${selectedYear}-${('0'+(MONTHS_LIST.indexOf(selectedMonth)+1)).slice(-2)}-${('0'+d).slice(-2)}`; 
-                                                // Simplified date match logic for demo calendar
-                                                const hasReport = allData.dailyReports.some(r => r.campusId === campus.id && r.date.endsWith(`-${('0'+d).slice(-2)}`) && r.date.includes((MONTHS_LIST.indexOf(selectedMonth)+4)%12 || 12));
-                                                // Note: Exact date matching for calendar would require proper Date object logic. 
-                                                // For this "Simple" calendar view, we just use the click handler to set full date.
-                                                
+                                                const targetMonthIdx = MONTHS_LIST.indexOf(selectedMonth);
+                                                let tYear = Number(selectedYear);
+                                                let tMonth = targetMonthIdx + 3;
+                                                if (tMonth > 11) { tMonth -= 12; tYear++; }
+                                                const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+d).slice(-2)}`; 
+                                                const report = allData.dailyReports.find(r => r.campusId === campus.id && r.date === dateStr);
+                                                const WeatherIcon = report && weatherMap[report.weather] ? weatherMap[report.weather].i : null;
+                                                const isToday = dateStr === formatDateStr(new Date());
+
                                                 return (
-                                                    <div key={d} onClick={()=>setReportDate(`${selectedYear}-${('0'+(MONTHS_LIST.indexOf(selectedMonth)+4)).slice(-2)}-${('0'+d).slice(-2)}`)} className="bg-white h-20 p-1 cursor-pointer hover:bg-blue-50 relative">
-                                                        <span className="text-xs font-bold text-gray-700">{d}</span>
+                                                    <div key={d} onClick={()=>setReportDate(dateStr)} className={`bg-white h-24 p-1 cursor-pointer hover:bg-blue-50 relative flex flex-col justify-between border border-transparent hover:border-blue-200 ${isToday?'bg-blue-50/60':''}`}>
+                                                        <div className="flex justify-between items-start">
+                                                            <span className={`text-xs font-bold ${isToday?'text-brand-blue':'text-gray-700'}`}>{d}</span>
+                                                            {WeatherIcon && <WeatherIcon className={`w-3 h-3 ${weatherMap[report.weather].c}`}/>}
+                                                        </div>
+                                                        {report && (
+                                                            <div className="text-[9px] text-gray-500 space-y-0.5">
+                                                                <div className="flex justify-between"><span>門配</span><span className="font-bold">{report.flyers}</span></div>
+                                                                <div className="flex justify-between"><span>T&T</span><span className="font-bold">{report.touchTry}</span></div>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 );
                                             })}
@@ -590,20 +801,48 @@
                                         <div className="space-y-4">
                                             <div>
                                                 <label className="text-xs font-bold text-gray-400 block mb-2">天気</label>
-                                                <div className="flex gap-2">{Object.entries(weatherMap).map(([k,v])=><button key={k} onClick={()=>setInputData({...inputData,weather:k})} className={`flex-1 py-2 rounded-lg border flex flex-col items-center justify-center ${inputData.weather===k?'bg-blue-50 border-brand-blue':'border-gray-100'}`}><v.i className={`w-4 h-4 mb-1 ${v.c}`}/><span className="text-[10px] font-bold text-gray-500">{v.l}</span></button>)}</div>
+                                                <div className="flex gap-2">{Object.entries(weatherMap).map(([k,v])=><button key={k} onClick={()=>setInputData({...inputData,weather:k})} className={`flex-1 py-2 rounded-lg border flex flex-col items-center justify-center ${inputData.weather===k?'bg-blue-50 border-brand-blue':'border-gray-100 hover:bg-gray-50'}`}><v.i className={`w-4 h-4 mb-1 ${v.c}`}/><span className="text-[10px] font-bold text-gray-500">{v.l}</span></button>)}</div>
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="text-xs font-bold text-gray-400 block mb-1">門配数</label><input type="number" value={inputData.flyers} onChange={e=>setInputData({...inputData,flyers:e.target.value})} className="w-full border rounded p-2 text-right font-bold"/></div>
-                                                <div><label className="text-xs font-bold text-gray-400 block mb-1">T&T数</label><input type="number" value={inputData.touch} onChange={e=>setInputData({...inputData,touch:e.target.value})} className="w-full border rounded p-2 text-right font-bold"/></div>
+                                                <div><label className="text-xs font-bold text-gray-400 block mb-1">門配数</label><input type="number" value={inputData.flyers} onChange={e=>setInputData({...inputData,flyers:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                                <div><label className="text-xs font-bold text-gray-400 block mb-1">T&T数</label><input type="number" value={inputData.touch} onChange={e=>setInputData({...inputData,touch:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
                                             </div>
-                                            <div><label className="text-xs font-bold text-gray-400 block mb-1">体験会実施数</label><input type="number" value={inputData.trial} onChange={e=>setInputData({...inputData,trial:e.target.value})} className="w-full border rounded p-2 text-right font-bold"/></div>
+                                            <div><label className="text-xs font-bold text-gray-400 block mb-1">体験会実施数</label><input type="number" value={inputData.trial} onChange={e=>setInputData({...inputData,trial:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
                                             <button onClick={handleSaveReport} className="w-full bg-brand-orange text-white font-bold py-3 rounded-lg hover:bg-orange-600 flex items-center justify-center mt-4"><Save className="w-4 h-4 mr-2"/>保存</button>
                                         </div>
                                     </div>
                                 </div>
                             )}
+                            {activeTab === 'plan' && (
+                                <div className="space-y-6 animate-in fade-in">
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="font-bold text-gray-800 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-brand-orange"/> {selectedYear}年度 計画入力</h3>
+                                            <button onClick={handleSavePlan} disabled={isSavingPlan} className="bg-brand-blue text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 flex items-center">{isSavingPlan ? <Loader2 className="animate-spin w-4 h-4 mr-2"/> : <Save className="w-4 h-4 mr-2"/>} 保存する</button>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left border-collapse">
+                                                <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200">
+                                                    <tr><th className="px-4 py-3 min-w-[80px]">月度</th><th className="px-4 py-3 min-w-[100px]">目標入会</th><th className="px-4 py-3 min-w-[100px]">体験会数</th><th className="px-4 py-3 min-w-[100px]">門配目標</th><th className="px-4 py-3 min-w-[80px]">入会率</th></tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {MONTHS_LIST.map((m) => (
+                                                        <tr key={m} className="hover:bg-gray-50">
+                                                            <td className="px-4 py-2 font-bold text-gray-700">{m}</td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.enrollments || 0} onChange={(e)=>handlePlanChange(m, 'enrollments', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.trials || 0} onChange={(e)=>handlePlanChange(m, 'trials', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.flyers || 0} onChange={(e)=>handlePlanChange(m, 'flyers', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2 text-right font-mono text-gray-500">{planData[m]?.rate || 0}%</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             {activeTab === 'finance' && (
-                                <div className="space-y-8 bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+                                <div className="space-y-8 bg-white p-8 rounded-xl shadow-sm border border-gray-100 animate-in fade-in">
                                     <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><FileSpreadsheet className="w-5 h-5 mr-2 text-brand-orange"/> 収支CSV取込</h3>
                                     <div className="max-w-xl mx-auto"><CsvUploader onUpload={handleCsvUpload} isUploading={uploading}/></div>
                                 </div>
