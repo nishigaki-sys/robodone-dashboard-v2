@@ -29,7 +29,6 @@ const CACHE_KEYS = {
     LAST_UPDATED: 'dash_last_updated'
 };
 
-// Firebase Init
 let db = null;
 let isFirebaseInitialized = false;
 try {
@@ -38,34 +37,27 @@ try {
         db = getFirestore(app);
         isFirebaseInitialized = true;
     }
-} catch (e) { console.error("Firebase Init Error:", e); }
+} catch (e) { console.error(e); }
 
 // ==========================================
-// Helper Functions (Enhanced)
+// Helper Functions
 // ==========================================
 const normalizeString = (str) => {
     if (!str) return "";
     return str.replace(/[\s\u3000]/g, "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
 };
 
-// ★ 日本語形式（2026年1月24日(土)）を解析できるように修正
 const parseDate = (dateValue) => {
     if (!dateValue) return null;
     if (typeof dateValue.toDate === 'function') return dateValue.toDate();
     if (dateValue.seconds) return new Date(dateValue.seconds * 1000);
-    
     if (typeof dateValue === 'string') {
-        // 標準形式 (YYYY-MM-DDなど)
         let d = new Date(dateValue);
         if (!isNaN(d.getTime())) return d;
-
-        // 日本語形式を正規表現で解析
+        // 日本語形式のパース (2026年1月24日...)
         const jpDateMatch = dateValue.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
         if (jpDateMatch) {
-            const year = parseInt(jpDateMatch[1], 10);
-            const month = parseInt(jpDateMatch[2], 10) - 1;
-            const day = parseInt(jpDateMatch[3], 10);
-            return new Date(year, month, day);
+            return new Date(parseInt(jpDateMatch[1], 10), parseInt(jpDateMatch[2], 10) - 1, parseInt(jpDateMatch[3], 10));
         }
     }
     return null;
@@ -73,18 +65,10 @@ const parseDate = (dateValue) => {
 
 const formatDateStr = (date) => {
     if (!date) return "";
-    const y = date.getFullYear();
-    const m = ('0' + (date.getMonth() + 1)).slice(-2);
-    const d = ('0' + date.getDate()).slice(-2);
-    return `${y}-${m}-${d}`;
+    return `${date.getFullYear()}-${('0' + (date.getMonth() + 1)).slice(-2)}-${('0' + date.getDate()).slice(-2)}`;
 };
 
-const getFiscalYear = (date) => {
-    if (!date) return -1;
-    return date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear();
-};
-
-const formatYen = (val) => `¥${val.toLocaleString()}`;
+const getFiscalYear = (date) => (date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear());
 
 const getWeeksStruct = (fiscalYear, monthIndex) => {
     let targetYear = fiscalYear;
@@ -96,14 +80,9 @@ const getWeeksStruct = (fiscalYear, monthIndex) => {
     for (let day = 1; day <= daysInMonth; day++) {
         const dateObj = new Date(targetYear, jsMonth, day);
         const dayOfWeek = dateObj.getDay();
-        let isWeekEnd = false;
-        if (dayOfWeek === 0) {
-            if (day === 1) isWeekEnd = false;
-            else isWeekEnd = true;
-        }
-        if (day === daysInMonth) isWeekEnd = true;
+        let isWeekEnd = (dayOfWeek === 0 && day !== 1) || day === daysInMonth;
         if (isWeekEnd) {
-            weeks.push({ name: `第${weeks.length + 1}週 (${startDay}日～${day}日)`, startDay, endDay: day });
+            weeks.push({ name: `第${weeks.length + 1}週 (${startDay}～${day})`, startDay, endDay: day });
             startDay = day + 1;
         }
     }
@@ -111,7 +90,7 @@ const getWeeksStruct = (fiscalYear, monthIndex) => {
 };
 
 // UI Components
-const StatCard = ({ title, value, subValue, trend, icon: Icon, color, details }) => (
+const StatCard = ({ title, value, subValue, icon: Icon, color, details }) => (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
         <div className="flex justify-between items-start">
             <div>
@@ -120,10 +99,8 @@ const StatCard = ({ title, value, subValue, trend, icon: Icon, color, details })
             </div>
             <div className={`p-3 rounded-lg ${color}`}><Icon className="w-6 h-6 text-white" /></div>
         </div>
-        <div className="mt-4 flex items-center text-sm text-slate-400">
-            {subValue}
-        </div>
-        {details && details.length > 0 && (
+        <div className="mt-4 text-sm text-slate-400">{subValue}</div>
+        {details && (
             <div className="mt-4 pt-3 border-t border-slate-100 space-y-1">
                 {details.map((item, idx) => (
                     <div key={idx} className="flex justify-between text-xs text-slate-500">
@@ -141,25 +118,16 @@ function RobotSchoolDashboard() {
     const currentFiscalYear = today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
     const currentMonthStr = `${today.getMonth() + 1}月`;
 
+    // State
     const [activeTab, setActiveTab] = useState('summary');
     const [selectedCampusId, setSelectedCampusId] = useState('All');
+    const [isCampusMenuOpen, setIsCampusMenuOpen] = useState(true); // ★修正済み
     const [expandedCampusId, setExpandedCampusId] = useState(null);
     const [viewMode, setViewMode] = useState('monthly');
     const [selectedMonth, setSelectedMonth] = useState(currentMonthStr);
     const [selectedYear, setSelectedYear] = useState(currentFiscalYear);
 
     const [campusList, setCampusList] = useState([]);
-    const [isSyncing, setIsSyncing] = useState(false);
-    const [lastUpdated, setLastUpdated] = useState(null);
-    const [isUsingCache, setIsUsingCache] = useState(false);
-
-    const [planData, setPlanData] = useState(MONTHS_LIST.reduce((acc, m) => ({...acc, [m]: {enrollments:0, trials:0, touchTry:0, flyers:0, rate:0}}), {}));
-    const [isSavingPlan, setIsSavingPlan] = useState(false);
-    const [isSavingReport, setIsSavingReport] = useState(false);
-    const [isInputModalOpen, setIsInputModalOpen] = useState(false);
-    const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
-    const [dailyReportInput, setDailyReportInput] = useState({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
-
     const [realEnrollments, setRealEnrollments] = useState([]);
     const [realStatusChanges, setRealStatusChanges] = useState([]);
     const [realTransfers, setRealTransfers] = useState([]);
@@ -169,7 +137,14 @@ function RobotSchoolDashboard() {
     const [rawDataMap, setRawDataMap] = useState(null);
     const [displayData, setDisplayData] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [errorMsg, setErrorMsg] = useState(null);
+    const [lastUpdated, setLastUpdated] = useState(null);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [isSavingPlan, setIsSavingPlan] = useState(false);
+    const [isSavingReport, setIsSavingReport] = useState(false);
+    const [isInputModalOpen, setIsInputModalOpen] = useState(false);
+    const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
+    const [dailyReportInput, setDailyReportInput] = useState({ weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
+    const [planData, setPlanData] = useState(MONTHS_LIST.reduce((acc, m) => ({...acc, [m]: {enrollments:0, trials:0, touchTry:0, flyers:0, rate:0}}), {}));
 
     const selectedCampusName = useMemo(() => {
         if (selectedCampusId === 'All') return '全校舎 (合計)';
@@ -177,6 +152,7 @@ function RobotSchoolDashboard() {
         return c ? c.name : selectedCampusId;
     }, [selectedCampusId, campusList]);
 
+    // Firebase Sync
     const fetchFromFirebaseAndCache = async () => {
         if (!isFirebaseInitialized || !db) return;
         setIsSyncing(true);
@@ -190,31 +166,29 @@ function RobotSchoolDashboard() {
                 getDocs(collection(db, "trial_applications"))
             ]);
 
-            const campuses = campusSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            const enrollments = enrollSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            const status = statusSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            const transfers = transferSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            const reports = reportSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            const trialApps = trialSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const data = {
+                campuses: campusSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+                enroll: enrollSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+                status: statusSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+                transfers: transferSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+                reports: reportSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+                trials: trialSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+            };
+
+            setCampusList(data.campuses);
+            setRealEnrollments(data.enroll);
+            setRealStatusChanges(data.status);
+            setRealTransfers(data.transfers);
+            setRealDailyReports(data.reports);
+            setRealTrialApps(data.trials);
+            
             const now = new Date();
-
-            setCampusList(campuses);
-            setRealEnrollments(enrollments);
-            setRealStatusChanges(status);
-            setRealTransfers(transfers);
-            setRealDailyReports(reports);
-            setRealTrialApps(trialApps);
             setLastUpdated(now);
-            setIsUsingCache(false);
-
-            localStorage.setItem(CACHE_KEYS.CAMPUSES, JSON.stringify(campuses));
-            localStorage.setItem(CACHE_KEYS.ENROLLMENTS, JSON.stringify(enrollments));
-            localStorage.setItem(CACHE_KEYS.STATUS, JSON.stringify(status));
-            localStorage.setItem(CACHE_KEYS.TRANSFERS, JSON.stringify(transfers));
-            localStorage.setItem(CACHE_KEYS.DAILY_REPORTS, JSON.stringify(reports));
-            localStorage.setItem(CACHE_KEYS.TRIAL_APPS, JSON.stringify(trialApps));
+            Object.entries(CACHE_KEYS).forEach(([k, key]) => {
+                if (k !== 'LAST_UPDATED') localStorage.setItem(key, JSON.stringify(data[key.split('_')[1]] || data[key.split('_')[1]+'s'] || []));
+            });
             localStorage.setItem(CACHE_KEYS.LAST_UPDATED, now.toISOString());
-        } catch (e) { setErrorMsg("同期エラー: " + e.message); } finally { setIsSyncing(false); }
+        } catch (e) { console.error(e); } finally { setIsSyncing(false); }
     };
 
     useEffect(() => {
@@ -222,184 +196,171 @@ function RobotSchoolDashboard() {
             setIsLoading(true);
             const cachedTime = localStorage.getItem(CACHE_KEYS.LAST_UPDATED);
             if (cachedTime) {
-                setCampusList(JSON.parse(localStorage.getItem(CACHE_KEYS.CAMPUSES)));
-                setRealEnrollments(JSON.parse(localStorage.getItem(CACHE_KEYS.ENROLLMENTS)));
-                setRealStatusChanges(JSON.parse(localStorage.getItem(CACHE_KEYS.STATUS)));
-                setRealTransfers(JSON.parse(localStorage.getItem(CACHE_KEYS.TRANSFERS)));
-                setRealDailyReports(JSON.parse(localStorage.getItem(CACHE_KEYS.DAILY_REPORTS)));
-                setRealTrialApps(JSON.parse(localStorage.getItem(CACHE_KEYS.TRIAL_APPS)));
-                setLastUpdated(new Date(cachedTime));
-                setIsUsingCache(true);
+                try {
+                    setCampusList(JSON.parse(localStorage.getItem(CACHE_KEYS.CAMPUSES)) || []);
+                    setRealEnrollments(JSON.parse(localStorage.getItem(CACHE_KEYS.ENROLLMENTS)) || []);
+                    setRealStatusChanges(JSON.parse(localStorage.getItem(CACHE_KEYS.STATUS)) || []);
+                    setRealTransfers(JSON.parse(localStorage.getItem(CACHE_KEYS.TRANSFERS)) || []);
+                    setRealDailyReports(JSON.parse(localStorage.getItem(CACHE_KEYS.DAILY_REPORTS)) || []);
+                    setRealTrialApps(JSON.parse(localStorage.getItem(CACHE_KEYS.TRIAL_APPS)) || []);
+                    setLastUpdated(new Date(cachedTime));
+                } catch(e) { await fetchFromFirebaseAndCache(); }
             } else { await fetchFromFirebaseAndCache(); }
             setIsLoading(false);
         };
         init();
     }, []);
 
-    useEffect(() => {
-        const fetchPlan = async () => {
-            if (selectedCampusId === 'All' || !isFirebaseInitialized) return;
-            const docSnap = await getDoc(doc(db, "campus_plans", `${selectedCampusId}_${selectedYear}`));
-            setPlanData(docSnap.exists() ? docSnap.data().plans : MONTHS_LIST.reduce((acc, m) => ({...acc, [m]: {enrollments:0, trials:0, touchTry:0, flyers:0, rate:0}}), {}));
-        };
-        fetchPlan();
-    }, [selectedCampusId, selectedYear]);
-
-    // ==========================================
-    // ★ 改良版集計ロジック
-    // ==========================================
-    const generateAllCampusesData = (targetCampuses, enrollList, statusList, transferList, reportList, trialAppsList, targetYear) => {
+    // 集計ロジック (統合版)
+    const calculateData = () => {
         const dataMap = {};
         const sheetToId = {};
-        targetCampuses.forEach(c => { sheetToId[c.sheetName || c.name] = c.id; sheetToId[normalizeString(c.sheetName || c.name)] = c.id; });
+        campusList.forEach(c => { sheetToId[c.sheetName || c.name] = c.id; sheetToId[normalizeString(c.sheetName || c.name)] = c.id; });
 
         const reportLookup = {};
-        reportList.forEach(r => { if(r.campusId && r.date) reportLookup[`${r.campusId}_${r.date}`] = r; });
+        realDailyReports.forEach(r => { if(r.campusId && r.date) reportLookup[`${r.campusId}_${r.date}`] = r; });
 
-        targetCampuses.forEach(campusObj => {
+        campusList.forEach(campusObj => {
             const campusId = campusObj.id;
-            let currentStudents = 0; // 年度始まりの在籍数計算
-            
-            // 期首以前の累計計算
+            let currentStudents = 0;
+
             const filterBefore = (list, typeFilter = null) => list.filter(item => {
-                const campusKey = sheetToId[item.campus] || sheetToId[normalizeString(item.campus)];
-                if (campusKey !== campusId) return false;
+                const cKey = sheetToId[item.campus] || sheetToId[normalizeString(item.campus)];
+                if (cKey !== campusId) return false;
                 const d = parseDate(item.date);
-                if (!d || getFiscalYear(d) >= targetYear) return false;
+                if (!d || getFiscalYear(d) >= selectedYear) return false;
                 if (typeFilter && (!item.type || !item.type.includes(typeFilter))) return false;
                 return true;
             }).length;
 
-            currentStudents = (filterBefore(enrollList) + filterBefore(transferList)) - (filterBefore(statusList, "退会") + filterBefore(statusList, "転校") + filterBefore(statusList, "卒業"));
+            currentStudents = (filterBefore(realEnrollments) + filterBefore(realTransfers)) - (filterBefore(realStatusChanges, "退会") + filterBefore(realStatusChanges, "転校") + filterBefore(realStatusChanges, "卒業"));
 
             dataMap[campusId] = MONTHS_LIST.map((month, mIdx) => {
-                const { weeks, daysInMonth, targetYear: tYear, jsMonth: tMonth } = getWeeksStruct(targetYear, mIdx);
+                const { weeks, daysInMonth, targetYear: tYear, jsMonth: tMonth } = getWeeksStruct(selectedYear, mIdx);
                 const daily = Array.from({ length: daysInMonth }, (_, dIdx) => {
                     const dayNum = dIdx + 1;
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+dayNum).slice(-2)}`;
                     const report = reportLookup[`${campusId}_${dateStr}`] || {};
 
-                    // 体験会申込・実施の集計
                     let tApp = 0, eApp = 0, tExec = 0, eExec = 0;
-                    trialAppsList.forEach(app => {
+                    realTrialApps.forEach(app => {
                         const cKey = sheetToId[app.campus] || sheetToId[normalizeString(app.campus)];
                         if (cKey !== campusId) return;
                         const isEvent = app.type && app.type.includes('イベント');
-                        const aDate = parseDate(app.date);
-                        if (aDate && formatDateStr(aDate) === dateStr) { if(isEvent) eApp++; else tApp++; }
-                        const eDate = parseDate(app.trialDate);
-                        if (eDate && formatDateStr(eDate) === dateStr) { if(isEvent) eExec++; else tExec++; }
+                        const aD = parseDate(app.date); if (aD && formatDateStr(aD) === dateStr) { if(isEvent) eApp++; else tApp++; }
+                        const eD = parseDate(app.trialDate); if (eD && formatDateStr(eD) === dateStr) { if(isEvent) eExec++; else tExec++; }
                     });
 
-                    // 増減イベント
                     const countEvent = (list, type = null) => list.filter(i => {
-                        const cKey = sheetToId[i.campus] || sheetToId[normalizeString(i.campus)];
+                        const cK = sheetToId[i.campus] || sheetToId[normalizeString(i.campus)];
                         const d = parseDate(i.date);
-                        return cKey === campusId && d && formatDateStr(d) === dateStr && (!type || (i.type && i.type.includes(type)));
+                        return cK === campusId && d && formatDateStr(d) === dateStr && (!type || (i.type && i.type.includes(type)));
                     }).length;
 
-                    const dEnr = countEvent(enrollList);
-                    const dTrIn = countEvent(transferList);
-                    const dWith = countEvent(statusList, "退会");
-                    const dTrOut = countEvent(statusList, "転校");
-                    const dGrad = countEvent(statusList, "卒業");
-                    const dRec = countEvent(statusList, "休会");
-                    const dRet = countEvent(statusList, "復会");
+                    const dEnr = countEvent(realEnrollments); const dTrIn = countEvent(realTransfers);
+                    const dWith = countEvent(realStatusChanges, "退会"); const dTrOut = countEvent(realStatusChanges, "転校");
+                    const dGrad = countEvent(realStatusChanges, "卒業"); const dRec = countEvent(realStatusChanges, "休会");
 
                     return {
-                        name: `${dayNum}日`, newEnrollments: dEnr, transferIns: dTrIn, withdrawals: dWith, recesses: dRec, returns: dRet, transfers: dTrOut, graduates: dGrad,
-                        flyers: report.flyers || 0, touchAndTry: report.touchTry || 0,
-                        trialApp: tApp, eventApp: eApp, trialExec: tExec, eventExec: eExec,
+                        name: `${dayNum}日`, newEnrollments: dEnr, transferIns: dTrIn, withdrawals: dWith, recesses: dRec, transfers: dTrOut, graduates: dGrad,
+                        flyers: report.flyers || 0, touchAndTry: report.touchTry || 0, trialApp: tApp, eventApp: eApp, trialExec: tExec, eventExec: eExec,
                         totalStudents: currentStudents, withdrawals_neg: -dWith, recesses_neg: -dRec, transfers_neg: -dTrOut, graduates_neg: -dGrad
                     };
                 });
 
-                const weekly = weeks.map(week => {
-                    const slice = daily.slice(week.startDay - 1, week.endDay);
-                    const sum = (key) => slice.reduce((a, b) => a + (b[key] || 0), 0);
-                    return {
-                        name: week.name, newEnrollments: sum('newEnrollments'), transferIns: sum('transferIns'), withdrawals: sum('withdrawals'), recesses: sum('recesses'), returns: sum('returns'), transfers: sum('transfers'), graduates: sum('graduates'),
-                        flyers: sum('flyers'), touchAndTry: sum('touchAndTry'), trialApp: sum('trialApp'), eventApp: sum('eventApp'), trialExec: sum('trialExec'), eventExec: sum('eventExec'),
-                        withdrawals_neg: sum('withdrawals_neg'), recesses_neg: sum('recesses_neg'), transfers_neg: sum('transfers_neg'), graduates_neg: sum('graduates_neg')
-                    };
+                const mSum = (key) => daily.reduce((a, b) => a + (b[key] || 0), 0);
+                const weekly = weeks.map(w => {
+                    const slice = daily.slice(w.startDay - 1, w.endDay);
+                    const wSum = (k) => slice.reduce((a, b) => a + (b[k] || 0), 0);
+                    return { name: w.name, ...Object.fromEntries(Object.keys(daily[0]).filter(k => k!=='name').map(k => [k, wSum(k)])) };
                 });
 
-                const mSum = (key) => daily.reduce((a, b) => a + (b[key] || 0), 0);
                 const net = (mSum('newEnrollments') + mSum('transferIns')) - (mSum('withdrawals') + mSum('transfers') + mSum('graduates'));
                 currentStudents += net;
-
-                return {
-                    name: month, newEnrollments: mSum('newEnrollments'), transferIns: mSum('transferIns'), withdrawals: mSum('withdrawals'), recesses: mSum('recesses'), returns: mSum('returns'), transfers: mSum('transfers'), graduates: mSum('graduates'),
-                    flyers: mSum('flyers'), touchAndTry: mSum('touchAndTry'), trialApp: mSum('trialApp'), eventApp: mSum('eventApp'), trialExec: mSum('trialExec'), eventExec: mSum('eventExec'),
-                    totalStudents: currentStudents, withdrawals_neg: -mSum('withdrawals'), recesses_neg: -mSum('recesses'), transfers_neg: -mSum('transfers'), graduates_neg: -mSum('graduates'), daily, weekly
-                };
+                return { name: month, ...Object.fromEntries(Object.keys(daily[0]).filter(k => k!=='name').map(k => [k, mSum(k)])), totalStudents: currentStudents, daily, weekly };
             });
         });
 
-        // 全校舎合計 ('All')
         dataMap['All'] = MONTHS_LIST.map((m, idx) => {
-            const { weeks, daysInMonth } = getWeeksStruct(targetYear, idx);
-            const combined = { name: m, newEnrollments:0, transferIns:0, withdrawals:0, recesses:0, returns:0, transfers:0, graduates:0, totalStudents:0, flyers:0, touchAndTry:0, trialApp:0, eventApp:0, trialExec:0, eventExec:0, daily: Array.from({length:daysInMonth}, (_,i)=>({name:`${i+1}日`, newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, flyers:0, touchAndTry:0, trialApp:0, eventApp:0, trialExec:0, eventExec:0})), weekly: weeks.map(w=>({name:w.name, newEnrollments:0, transferIns:0, returns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, flyers:0, touchAndTry:0, trialApp:0, eventApp:0, trialExec:0, eventExec:0})) };
-            targetCampuses.forEach(c => {
+            const { weeks, daysInMonth } = getWeeksStruct(selectedYear, idx);
+            const comb = { name: m, newEnrollments:0, transferIns:0, withdrawals:0, recesses:0, returns:0, transfers:0, graduates:0, totalStudents:0, flyers:0, touchAndTry:0, trialApp:0, eventApp:0, trialExec:0, eventExec:0, withdrawals_neg:0, recesses_neg:0, transfers_neg:0, graduates_neg:0, daily: Array.from({length:daysInMonth}, (_,i)=>({name:`${i+1}日`, newEnrollments:0, transferIns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, flyers:0, touchAndTry:0, trialApp:0, eventApp:0, trialExec:0, eventExec:0, withdrawals_neg:0, recesses_neg:0, transfers_neg:0, graduates_neg:0})), weekly: weeks.map(w=>({name:w.name, newEnrollments:0, transferIns:0, withdrawals:0, recesses:0, transfers:0, graduates:0, flyers:0, touchAndTry:0, trialApp:0, eventApp:0, trialExec:0, eventExec:0, withdrawals_neg:0, recesses_neg:0, transfers_neg:0, graduates_neg:0})) };
+            campusList.forEach(c => {
                 const d = dataMap[c.id]?.[idx];
                 if (d) {
-                    Object.keys(combined).forEach(k => { if(typeof combined[k]==='number') combined[k] += d[k]; });
-                    d.daily.forEach((day, i) => { if(combined.daily[i]) Object.keys(day).forEach(k => { if(typeof day[k]==='number' && k!=='name') combined.daily[i][k] += day[k]; })});
-                    d.weekly.forEach((wk, i) => { if(combined.weekly[i]) Object.keys(wk).forEach(k => { if(typeof wk[k]==='number' && k!=='name') combined.weekly[i][k] += wk[k]; })});
+                    Object.keys(comb).forEach(k => { if(typeof comb[k]==='number') comb[k] += d[k]; });
+                    d.daily.forEach((day, i) => { if(comb.daily[i]) Object.keys(day).forEach(k => { if(typeof day[k]==='number' && k!=='name') comb.daily[i][k] += day[k]; })});
+                    d.weekly.forEach((wk, i) => { if(comb.weekly[i]) Object.keys(wk).forEach(k => { if(typeof wk[k]==='number' && k!=='name') comb.weekly[i][k] += wk[k]; })});
                 }
             });
-            return combined;
+            return comb;
         });
         return dataMap;
     };
 
+    useEffect(() => {
+        if (campusList.length) {
+            const map = calculateData();
+            setRawDataMap(map);
+        }
+    }, [campusList, realEnrollments, realStatusChanges, realTrialApps, realDailyReports, selectedYear]);
+
+    useEffect(() => {
+        if (rawDataMap) {
+            const data = rawDataMap[selectedCampusId] || [];
+            if (viewMode === 'annual') setDisplayData(data);
+            else {
+                const mData = data.find(d => d.name === selectedMonth);
+                setDisplayData(mData ? (viewMode === 'monthly' ? mData.daily : mData.weekly) : []);
+            }
+        }
+    }, [selectedCampusId, viewMode, selectedMonth, rawDataMap]);
+
     const totals = useMemo(() => {
-        if (!displayData.length) return { newEnrollments:0, returns:0, transferIns:0, withdrawals:0, graduates:0, transfers:0, recesses:0, flyers:0, touchAndTry:0, trialApp:0, eventApp:0, trialExec:0, eventExec:0 };
-        return displayData.reduce((acc, curr) => {
-            Object.keys(acc).forEach(k => acc[k] += (curr[k] || 0));
-            return acc;
-        }, { newEnrollments:0, returns:0, transferIns:0, withdrawals:0, graduates:0, transfers:0, recesses:0, flyers:0, touchAndTry:0, trialApp:0, eventApp:0, trialExec:0, eventExec:0 });
+        const init = { newEnrollments:0, returns:0, transferIns:0, withdrawals:0, graduates:0, transfers:0, recesses:0, flyers:0, touchAndTry:0, trialApp:0, eventApp:0, trialExec:0, eventExec:0 };
+        return displayData.reduce((acc, curr) => { Object.keys(acc).forEach(k => acc[k] += (curr[k] || 0)); return acc; }, init);
     }, [displayData]);
 
     const currentTotalStudents = displayData.length ? (viewMode==='annual' ? displayData[displayData.length-1].totalStudents : displayData[0].totalStudents) : 0;
 
-    const handleAddCampus = async () => {
-        if (!newCampusId || !newCampusName) return alert("入力必須");
-        await setDoc(doc(db, "campuses", newCampusId), { id: newCampusId, name: newCampusName, sheetName: newCampusSheetName || newCampusName, createdAt: serverTimestamp() });
-        fetchFromFirebaseAndCache();
+    // Handlers
+    const handleSaveDailyReport = async () => {
+        if (selectedCampusId === 'All') return;
+        setIsSavingReport(true);
+        try {
+            await setDoc(doc(db, "daily_reports", `${selectedCampusId}_${reportDate}`), { campusId: selectedCampusId, date: reportDate, ...dailyReportInput, updatedAt: serverTimestamp() });
+            await fetchFromFirebaseAndCache();
+            setIsInputModalOpen(false);
+        } catch(e) { alert(e.message); } finally { setIsSavingReport(false); }
     };
 
-    const handleDateClick = (day) => {
-        const monthIdx = MONTHS_LIST.indexOf(selectedMonth);
-        let tYear = selectedYear; let jsM = monthIdx + 3; if (jsM > 11) { jsM -= 12; tYear += 1; }
-        const dStr = formatDateStr(new Date(tYear, jsM, day));
-        setReportDate(dStr);
-        const ex = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dStr);
-        setDailyReportInput(ex ? { weather: ex.weather||'sunny', touchTry: ex.touchTry||0, flyers: ex.flyers||0, trialLessons: ex.trialLessons||0 } : { weather: 'sunny', touchTry: 0, flyers: 0, trialLessons: 0 });
-        setIsInputModalOpen(true);
+    const savePlanData = async () => {
+        setIsSavingPlan(true);
+        try {
+            await setDoc(doc(db, "campus_plans", `${selectedCampusId}_${selectedYear}`), { campusId: selectedCampusId, year: selectedYear, plans: planData, updatedAt: serverTimestamp() });
+            alert("保存完了");
+        } catch(e) { alert(e.message); } finally { setIsSavingPlan(false); }
     };
 
     const renderCalendar = () => {
         const mIdx = MONTHS_LIST.indexOf(selectedMonth);
-        let tYear = selectedYear; let jsM = mIdx + 3; if (jsM > 11) { jsM -= 12; tYear += 1; }
-        const firstDay = new Date(tYear, jsM, 1).getDay();
-        const daysInMonth = new Date(tYear, jsM + 1, 0).getDate();
-        const weatherMap = { sunny: { i: Sun, c: 'text-orange-500' }, cloudy: { i: Cloud, c: 'text-gray-500' }, rainy: { i: CloudRain, c: 'text-blue-500' }, snowy: { i: Snowflake, c: 'text-cyan-500' }, closed: { i: Ban, c: 'text-rose-500' } };
+        let tY = selectedYear; let jsM = mIdx + 3; if (jsM > 11) { jsM -= 12; tY += 1; }
+        const firstDay = new Date(tY, jsM, 1).getDay();
+        const daysInMonth = new Date(tY, jsM + 1, 0).getDate();
+        const wMap = { sunny: { i: Sun, c: 'text-orange-500' }, cloudy: { i: Cloud, c: 'text-gray-500' }, rainy: { i: CloudRain, c: 'text-blue-500' }, snowy: { i: Snowflake, c: 'text-cyan-500' }, closed: { i: Ban, c: 'text-rose-500' } };
         const blanks = Array.from({ length: firstDay }, (_, i) => <div key={`b-${i}`} className="h-24 bg-slate-50 border border-slate-100"></div>);
         const days = Array.from({ length: daysInMonth }, (_, i) => {
             const day = i + 1;
-            const dStr = `${tYear}-${('0'+(jsM+1)).slice(-2)}-${('0'+day).slice(-2)}`;
-            const rep = realDailyReports.find(r => r.campusId === selectedCampusId && r.date === dStr);
-            const WIcon = rep && rep.weather ? weatherMap[rep.weather].i : null;
+            const dS = `${tY}-${('0'+(jsM+1)).slice(-2)}-${('0'+day).slice(-2)}`;
+            const r = realDailyReports.find(rep => rep.campusId === selectedCampusId && rep.date === dS);
             return (
-                <div key={day} onClick={() => handleDateClick(day)} className={`h-24 border border-slate-200 p-1.5 cursor-pointer hover:bg-blue-50 transition-all flex flex-col ${rep?.weather === 'closed' ? 'bg-slate-100' : 'bg-white'}`}>
-                    <div className="flex justify-between items-start mb-1"><span className="text-sm font-bold text-slate-700">{day}</span>{WIcon && <WIcon className={`w-4 h-4 ${weatherMap[rep.weather].c}`} />}</div>
-                    {rep && rep.weather !== 'closed' ? (
+                <div key={day} onClick={() => { setReportDate(dS); setDailyReportInput(r || {weather:'sunny',touchTry:0,flyers:0,trialLessons:0}); setIsInputModalOpen(true); }} className={`h-24 border border-slate-200 p-1.5 cursor-pointer hover:bg-blue-50 transition-all flex flex-col ${r?.weather === 'closed' ? 'bg-slate-100' : 'bg-white'}`}>
+                    <div className="flex justify-between items-start mb-1"><span className="text-sm font-bold text-slate-700">{day}</span>{r && wMap[r.weather] && React.createElement(wMap[r.weather].i, { className: `w-4 h-4 ${wMap[r.weather].c}` })}</div>
+                    {r && r.weather !== 'closed' ? (
                         <div className="flex-1 flex flex-col justify-end gap-0.5 text-[10px] text-slate-500">
-                            <div className="bg-slate-50 px-1 rounded flex justify-between"><span>門配</span><b>{rep.flyers}</b></div>
-                            <div className="bg-slate-50 px-1 rounded flex justify-between"><span>T&T</span><b>{rep.touchTry}</b></div>
+                            <div className="bg-slate-50 px-1 rounded flex justify-between"><span>門配</span><b>{r.flyers}</b></div>
+                            <div className="bg-slate-50 px-1 rounded flex justify-between"><span>T&T</span><b>{r.touchTry}</b></div>
                         </div>
-                    ) : rep?.weather === 'closed' ? <div className="flex-1 flex items-center justify-center text-xs font-bold text-slate-400">休校</div> : null}
+                    ) : r?.weather === 'closed' ? <div className="flex-1 flex items-center justify-center text-[10px] font-bold text-slate-400">休校</div> : null}
                 </div>
             );
         });
@@ -410,13 +371,20 @@ function RobotSchoolDashboard() {
 
     return (
         <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900">
+            {/* Sidebar */}
             <aside className="w-64 bg-slate-900 text-white flex flex-col shrink-0 overflow-y-auto">
-                <div className="p-6 border-b border-slate-800"><div className="flex items-center space-x-2"><div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center"><TrendingUp className="w-5 h-5 text-white" /></div><span className="text-lg font-bold tracking-tight">RobotSchoolDash</span></div></div>
+                <div className="p-6 border-b border-slate-800 flex items-center space-x-2">
+                    <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center"><TrendingUp className="w-5 h-5 text-white" /></div>
+                    <span className="text-lg font-bold tracking-tight">RobotSchoolDash</span>
+                </div>
                 <nav className="flex-1 py-4 px-3 space-y-1">
                     <button onClick={() => {setActiveTab('summary'); setSelectedCampusId('All');}} className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg ${activeTab === 'summary' ? 'bg-blue-600' : 'text-slate-400 hover:bg-slate-800'}`}><LayoutDashboard className="w-5 h-5" /><span>経営サマリー</span></button>
-                    <button onClick={() => {setActiveTab('students');}} className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg ${activeTab === 'students' ? 'bg-blue-600' : 'text-slate-400 hover:bg-slate-800'}`}><Users className="w-5 h-5" /><span>生徒管理</span></button>
-                    <button onClick={() => {setActiveTab('marketing');}} className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg ${activeTab === 'marketing' ? 'bg-blue-600' : 'text-slate-400 hover:bg-slate-800'}`}><Megaphone className="w-5 h-5" /><span>集客・販促</span></button>
-                    <div className="pt-4 pb-2 px-3 text-xs font-semibold text-slate-500 uppercase cursor-pointer" onClick={() => setIsCampusMenuOpen(!isCampusMenuOpen)}>校舎管理</div>
+                    <button onClick={() => setActiveTab('students')} className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg ${activeTab === 'students' ? 'bg-blue-600' : 'text-slate-400 hover:bg-slate-800'}`}><Users className="w-5 h-5" /><span>生徒管理</span></button>
+                    <button onClick={() => setActiveTab('marketing')} className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg ${activeTab === 'marketing' ? 'bg-blue-600' : 'text-slate-400 hover:bg-slate-800'}`}><Megaphone className="w-5 h-5" /><span>集客・販促</span></button>
+                    
+                    <div className="pt-4 pb-2 px-3 text-xs font-semibold text-slate-500 uppercase flex justify-between items-center cursor-pointer" onClick={() => setIsCampusMenuOpen(!isCampusMenuOpen)}>
+                        <span>校舎管理</span><ChevronDown className={`w-4 h-4 transition-transform ${isCampusMenuOpen ? 'rotate-180' : ''}`} />
+                    </div>
                     {isCampusMenuOpen && (
                         <div className="space-y-1">
                             <button onClick={() => setActiveTab('settings')} className="w-full flex items-center space-x-3 px-3 py-2 text-sm text-slate-400 hover:bg-slate-800 rounded-lg"><Plus className="w-4 h-4" /><span>校舎追加</span></button>
@@ -437,11 +405,18 @@ function RobotSchoolDashboard() {
                 <div className="p-4 border-t border-slate-800 text-[10px] text-slate-500">更新: {lastUpdated?.toLocaleTimeString()}</div>
             </aside>
 
+            {/* Main Content */}
             <main className="flex-1 flex flex-col overflow-hidden relative">
                 <header className="bg-white border-b h-16 flex items-center justify-between px-6 shrink-0">
-                    <h1 className="text-xl font-bold text-slate-800">{{summary:'経営サマリー', students:'生徒数・入退会管理', marketing:'集客活動・販促管理', campus_daily:'日報入力', campus_yearly:'年間計画入力', settings:'校舎設定'}[activeTab]}</h1>
+                    <div>
+                        <h1 className="text-xl font-bold text-slate-800">{{summary:'経営サマリー', students:'生徒数・入退会管理', marketing:'集客活動・販促管理', campus_daily:'日報入力', campus_yearly:'年間計画入力', settings:'校舎設定'}[activeTab]}</h1>
+                        <p className="text-[10px] text-slate-500 flex items-center">{selectedCampusId !== 'All' ? <><Building className="w-3 h-3 mr-1" />{selectedCampusName}</> : '全校舎合計'}</p>
+                    </div>
                     <div className="flex items-center space-x-3">
                         <select value={selectedYear} onChange={e=>setSelectedYear(Number(e.target.value))} className="bg-slate-100 rounded-lg text-sm px-3 py-1 font-medium">{YEARS_LIST.map(y=><option key={y} value={y}>{y}年度</option>)}</select>
+                        <div className="flex bg-slate-100 rounded-lg p-1">
+                            {[{k:'annual',l:'年度'},{k:'monthly',l:'月度'},{k:'weekly',l:'週次'}].map(m=><button key={m.k} onClick={()=>setViewMode(m.k)} className={`px-3 py-1 text-xs rounded ${viewMode===m.k?'bg-white text-blue-600 shadow-sm':'text-slate-500'}`}>{m.l}</button>)}
+                        </div>
                         {viewMode !== 'annual' && <select value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)} className="bg-slate-100 rounded-lg text-sm px-3 py-1 font-medium">{MONTHS_LIST.map(m=><option key={m} value={m}>{m}</option>)}</select>}
                         <select value={selectedCampusId} onChange={e=>setSelectedCampusId(e.target.value)} className="bg-slate-100 rounded-lg text-sm px-3 py-1 font-bold"><option value="All">全校舎合計</option>{campusList.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
                         <button onClick={fetchFromFirebaseAndCache} disabled={isSyncing} className="p-2 rounded-lg border hover:bg-slate-50"><RefreshCw className={`w-4 h-4 ${isSyncing?'animate-spin':''}`} /></button>
@@ -464,8 +439,8 @@ function RobotSchoolDashboard() {
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                     <StatCard title="増加数" value={`${totals.newEnrollments + totals.transferIns}名`} subValue="入会+転入" icon={Users} color="bg-emerald-500" details={[{label:'入会', value:totals.newEnrollments},{label:'復会', value:totals.returns}]} />
                                     <StatCard title="減少数" value={`${totals.withdrawals + totals.transfers + totals.graduates}名`} subValue="退会+転校+卒業" icon={Users} color="bg-rose-500" details={[{label:'退会', value:totals.withdrawals},{label:'休会', value:totals.recesses}]} />
-                                    <StatCard title="純増数" value={`${(totals.newEnrollments + totals.transferIns) - (totals.withdrawals + totals.transfers + totals.graduates)}名`} subValue="増加-減少" icon={TrendingUp} color="bg-blue-500" />
-                                    <StatCard title="在籍数" value={`${currentTotalStudents}名`} subValue="期末現在" icon={School} color="bg-indigo-500" />
+                                    <StatCard title="純増数" value={`${(totals.newEnrollments + totals.transferIns) - (totals.withdrawals + totals.transfers + totals.graduates)}名`} subValue="純増減" icon={TrendingUp} color="bg-blue-500" />
+                                    <StatCard title="在籍数" value={`${currentTotalStudents}名`} subValue="現在" icon={School} color="bg-indigo-500" />
                                 </div>
                                 <div className="bg-white p-6 rounded-xl border h-[400px]">
                                     <h3 className="font-bold mb-4">生徒数増減フロー</h3>
@@ -487,31 +462,27 @@ function RobotSchoolDashboard() {
                         )}
 
                         {activeTab === 'marketing' && (
-                            <div className="space-y-6">
-                                <div className="bg-white p-6 rounded-xl border h-[500px]">
-                                    <h3 className="font-bold mb-4">集客・販促ファネル</h3>
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <ComposedChart data={displayData}>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                            <XAxis dataKey="name" />
-                                            <YAxis yAxisId="L" /><YAxis yAxisId="R" orientation="right" />
-                                            <Tooltip /><Legend />
-                                            <Bar yAxisId="L" dataKey="flyers" name="門配" fill="#94a3b8" />
-                                            {/* ★ 修正: 体験会・イベントの積み上げグラフ */}
-                                            <Bar yAxisId="L" dataKey="trialApp" name="体験会申込" stackId="app" fill="#3b82f6" />
-                                            <Bar yAxisId="L" dataKey="eventApp" name="イベント申込" stackId="app" fill="#93c5fd" />
-                                            <Bar yAxisId="L" dataKey="trialExec" name="体験会実施" stackId="exe" fill="#f97316" />
-                                            <Bar yAxisId="L" dataKey="eventExec" name="イベント実施" stackId="exe" fill="#fdba74" />
-                                            <Line yAxisId="R" type="monotone" dataKey="newEnrollments" name="入会数" stroke="#10b981" strokeWidth={3} />
-                                        </ComposedChart>
-                                    </ResponsiveContainer>
-                                </div>
+                            <div className="bg-white p-6 rounded-xl border h-[500px]">
+                                <h3 className="font-bold mb-4">集客・販促ファネル</h3>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <ComposedChart data={displayData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <XAxis dataKey="name" />
+                                        <YAxis yAxisId="L" /><YAxis yAxisId="R" orientation="right" />
+                                        <Tooltip /><Legend />
+                                        <Bar yAxisId="L" dataKey="flyers" name="門配" fill="#94a3b8" />
+                                        <Bar yAxisId="L" dataKey="trialApp" name="体験申込" stackId="app" fill="#3b82f6" />
+                                        <Bar yAxisId="L" dataKey="eventApp" name="イベント申込" stackId="app" fill="#93c5fd" />
+                                        <Bar yAxisId="L" dataKey="trialExec" name="体験実施" stackId="exe" fill="#f97316" />
+                                        <Bar yAxisId="L" dataKey="eventExec" name="イベント実施" stackId="exe" fill="#fdba74" />
+                                        <Line yAxisId="R" type="monotone" dataKey="newEnrollments" name="入会数" stroke="#10b981" strokeWidth={3} />
+                                    </ComposedChart>
+                                </ResponsiveContainer>
                             </div>
                         )}
 
                         {activeTab === 'campus_daily' && (
                             <div className="bg-white p-6 rounded-xl border">
-                                <h2 className="text-lg font-bold mb-4 flex items-center"><Calendar className="mr-2 text-blue-600" />{selectedCampusName} 日報カレンダー</h2>
                                 <div className="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden">
                                     {['日','月','火','水','木','金','土'].map((d,i)=><div key={d} className={`p-2 text-center text-xs font-bold ${i===0?'text-red-500':i===6?'text-blue-500':'text-slate-600'} bg-slate-100`}>{d}</div>)}
                                     {renderCalendar()}
@@ -519,44 +490,64 @@ function RobotSchoolDashboard() {
                             </div>
                         )}
 
+                        {activeTab === 'campus_yearly' && (
+                            <div className="bg-white p-6 rounded-xl border">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="font-bold">年間計画入力</h3>
+                                    <button onClick={savePlanData} disabled={isSavingPlan} className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center"><Save className="w-4 h-4 mr-2" />保存</button>
+                                </div>
+                                <table className="w-full text-sm">
+                                    <thead><tr className="bg-slate-50 border-b"><th>月</th><th>入会目標</th><th>体験目標</th><th>門配目標</th></tr></thead>
+                                    <tbody>
+                                        {MONTHS_LIST.map(m => (
+                                            <tr key={m} className="border-b">
+                                                <td className="p-2 font-bold">{m}</td>
+                                                {['enrollments','trials','flyers'].map(f => (
+                                                    <td key={f} className="p-1"><input type="number" className="w-full border p-1 text-right" value={planData[m]?.[f] || 0} onChange={e => handlePlanChange(m, f, e.target.value)} /></td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
                         {activeTab === 'settings' && (
                             <div className="bg-white p-8 rounded-xl border">
-                                <h2 className="text-lg font-bold mb-6">校舎追加</h2>
+                                <h3 className="font-bold mb-4">校舎追加</h3>
                                 <div className="flex gap-4 items-end mb-8">
-                                    <div className="flex-1"><label className="text-xs font-bold mb-1 block">ID (英数)</label><input value={newCampusId} onChange={e=>setNewCampusId(e.target.value)} className="border w-full p-2 rounded" /></div>
-                                    <div className="flex-1"><label className="text-xs font-bold mb-1 block">校舎名</label><input value={newCampusName} onChange={e=>setNewCampusName(e.target.value)} className="border w-full p-2 rounded" /></div>
-                                    <button onClick={handleAddCampus} className="bg-blue-600 text-white px-6 py-2 rounded h-10 hover:bg-blue-700 transition-colors">登録</button>
+                                    <div className="flex-1"><label className="text-xs block mb-1">ID</label><input className="border w-full p-2 rounded" value={newCampusId} onChange={e=>setNewCampusId(e.target.value)} /></div>
+                                    <div className="flex-1"><label className="text-xs block mb-1">校舎名</label><input className="border w-full p-2 rounded" value={newCampusName} onChange={e=>setNewCampusName(e.target.value)} /></div>
+                                    <button onClick={handleAddCampus} className="bg-blue-600 text-white px-6 py-2 rounded h-10">登録</button>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {campusList.map(c=>(<div key={c.id} className="flex justify-between p-4 bg-slate-50 rounded border"><div><div className="font-bold">{c.name}</div><div className="text-[10px] text-slate-400">ID: {c.id}</div></div><button onClick={()=>handleDeleteCampus(c.id, c.name)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></div>))}
+                                    {campusList.map(c => (<div key={c.id} className="p-4 bg-slate-50 rounded border flex justify-between items-center"><div><b>{c.name}</b><br/><span className="text-[10px] text-slate-400">ID: {c.id}</span></div><button onClick={()=>handleDeleteCampus(c.id, c.name)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></div>))}
                                 </div>
                             </div>
                         )}
                     </div>
                 </div>
 
+                {/* Daily Report Modal */}
                 {isInputModalOpen && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                         <div className="bg-white rounded-xl shadow-2xl max-w-md w-full animate-in zoom-in-95">
                             <div className="flex justify-between items-center p-4 border-b">
-                                <h3 className="font-bold flex items-center"><PenTool className="mr-2 text-blue-600" />日報入力 ({reportDate})</h3>
+                                <h3 className="font-bold">日報入力 ({reportDate})</h3>
                                 <button onClick={()=>setIsInputModalOpen(false)}><X /></button>
                             </div>
                             <div className="p-6 space-y-6">
-                                <div><label className="text-sm font-bold mb-2 block">状態/天気</label>
-                                    <div className="grid grid-cols-5 gap-2">
-                                        {[{id:'sunny',l:'晴',i:Sun,c:'text-orange-500'},{id:'cloudy',l:'曇',i:Cloud,c:'text-gray-500'},{id:'rainy',l:'雨',i:CloudRain,c:'text-blue-500'},{id:'snowy',l:'雪',i:Snowflake,c:'text-cyan-500'},{id:'closed',l:'休校',i:Ban,c:'text-red-500'}].map(w=>(
-                                            <button key={w.id} onClick={()=>handleWeatherSelect(w.id)} className={`flex flex-col items-center p-2 border rounded-lg transition-all ${dailyReportInput.weather===w.id?'bg-blue-50 border-blue-500 ring-2 ring-blue-500':'hover:bg-slate-50'}`}><w.i className={`w-5 h-5 ${w.c} mb-1`} /><span className="text-[10px]">{w.l}</span></button>
-                                        ))}
-                                    </div>
+                                <div className="grid grid-cols-5 gap-2">
+                                    {[{id:'sunny',i:Sun,c:'text-orange-500'},{id:'cloudy',i:Cloud,c:'text-gray-500'},{id:'rainy',i:CloudRain,c:'text-blue-500'},{id:'snowy',i:Snowflake,c:'text-cyan-500'},{id:'closed',i:Ban,c:'text-red-500'}].map(w=>(
+                                        <button key={w.id} onClick={()=>handleWeatherSelect(w.id)} className={`flex flex-col items-center p-2 border rounded-lg ${dailyReportInput.weather===w.id?'bg-blue-50 border-blue-500 ring-2':'hover:bg-slate-50'}`}><w.i className={`w-5 h-5 ${w.c}`} /></button>
+                                    ))}
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">門配 (枚)</label><input type="number" disabled={dailyReportInput.weather==='closed'} className="border rounded w-full p-2 text-right font-mono" value={dailyReportInput.flyers} onChange={e=>setDailyReportInput({...dailyReportInput,flyers:Number(e.target.value)})}/></div>
-                                    <div><label className="text-xs font-bold text-slate-500 mb-1 block">T&T (件)</label><input type="number" disabled={dailyReportInput.weather==='closed'} className="border rounded w-full p-2 text-right font-mono" value={dailyReportInput.touchTry} onChange={e=>setDailyReportInput({...dailyReportInput,touchTry:Number(e.target.value)})}/></div>
+                                    {['flyers','touchTry'].map(f => (
+                                        <div key={f}><label className="text-xs font-bold block mb-1">{f==='flyers'?'門配':'T&T'}</label><input type="number" disabled={dailyReportInput.weather==='closed'} className="border w-full p-2 text-right" value={dailyReportInput[f]} onChange={e=>setDailyReportInput({...dailyReportInput,[f]:Number(e.target.value)})} /></div>
+                                    ))}
                                 </div>
-                                <button onClick={handleSaveDailyReport} disabled={isSavingReport} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition-all flex items-center justify-center">
-                                    {isSavingReport ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>} 保存する
-                                </button>
+                                <button onClick={handleSaveDailyReport} disabled={isSavingReport} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold">保存</button>
                             </div>
                         </div>
                     </div>
@@ -565,5 +556,6 @@ function RobotSchoolDashboard() {
         </div>
     );
 }
+
 const root = createRoot(document.getElementById('root'));
 root.render(<RobotSchoolDashboard />);
