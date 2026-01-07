@@ -62,7 +62,7 @@
         import { 
             LayoutDashboard, Users, TrendingUp, Calendar, DollarSign, Activity, Loader2, 
             Settings, Plus, Trash2, School, FileText, Save, Sun, Cloud, CloudRain, Snowflake, Ban, PenTool, 
-            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X
+            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown
         } from "lucide-react";
         import { initializeApp } from "firebase/app";
         import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from "firebase/firestore";
@@ -105,8 +105,44 @@
             const d = ('0' + date.getDate()).slice(-2);
             return `${y}-${m}-${d}`;
         };
+        // 年度計算: 1~3月は前年度扱い
         const getFiscalYear = (date) => (date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear());
         const normalizeString = (str) => (!str ? "" : str.replace(/[\s\u3000]/g, "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)));
+
+        // 週構成計算ロジック (月曜始まり、日曜終わり)
+        const getWeeksStruct = (fiscalYear, monthIndex) => {
+            // monthIndex: 0 -> 4月 (JS:3), 11 -> 3月 (JS:2, NextYear)
+            let targetYear = fiscalYear;
+            let jsMonth = monthIndex + 3; 
+            if (jsMonth > 11) {
+                jsMonth -= 12;
+                targetYear += 1;
+            }
+            
+            const daysInMonth = new Date(targetYear, jsMonth + 1, 0).getDate();
+            const weeks = [];
+            let startDay = 1;
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateObj = new Date(targetYear, jsMonth, day);
+                const dayOfWeek = dateObj.getDay(); // 0:Sun, 1:Mon, ..., 6:Sat
+                
+                // 終了判定: 日曜日(0) または 月末
+                // 特例: 初日が日曜日の場合も第1週として区切る
+                let isWeekEnd = (dayOfWeek === 0) || (day === daysInMonth);
+                
+                if (isWeekEnd) {
+                    weeks.push({
+                        name: `第${weeks.length + 1}週`,
+                        startDay: startDay,
+                        endDay: day,
+                        label: `${startDay}日～${day}日`
+                    });
+                    startDay = day + 1;
+                }
+            }
+            return { weeks, daysInMonth, year: targetYear, month: jsMonth };
+        };
 
         // ==========================================
         // 2. Data Processing Logic
@@ -118,28 +154,6 @@
                 sheetNameToIdMap[key] = c.id;
                 sheetNameToIdMap[normalizeString(key)] = c.id;
             });
-
-            // Initialize Monthly Data Structure
-            const monthlyStats = MONTHS_LIST.map(m => ({
-                name: m,
-                revenue: 0,
-                students: 0,
-                // Student Flow
-                newEnrollments: 0,
-                transferIns: 0,
-                returns: 0,
-                withdrawals: 0,
-                withdrawals_neg: 0,
-                transfers_neg: 0,
-                graduates_neg: 0,
-                recesses_neg: 0,
-                // Marketing
-                flyers: 0,
-                trialApp: 0,
-                trialExec: 0,
-                eventApp: 0,
-                eventExec: 0
-            }));
 
             // 1. Calculate Base Student Count (Before Target Year)
             let baseStudentCount = 0;
@@ -161,90 +175,138 @@
             
             baseStudentCount = (prevEnroll + prevTransferIn) - (prevWithdraw + prevGrad + prevTransferOut);
 
-            // 2. Iterate Months
             let currentStudents = baseStudentCount;
 
-            monthlyStats.forEach((stat, idx) => {
-                let targetMonthYear = targetYear;
-                let jsMonth = idx + 3; // 0=Apr
-                if (jsMonth > 11) { jsMonth -= 12; targetMonthYear++; }
+            // 2. Build Monthly, Weekly, Daily Stats
+            const monthlyStats = MONTHS_LIST.map((monthName, mIdx) => {
+                const { weeks, daysInMonth, year: tYear, month: tMonth } = getWeeksStruct(targetYear, mIdx);
                 
-                // Helper to filter events in this month
-                const filterInMonth = (list, typeFilter = null) => list.filter(item => {
-                    const d = parseDate(item.date || item.trialDate); // Handle trialDate for execution
-                    if (!d) return false;
-                    if (typeFilter && (!item.type || !item.type.includes(typeFilter))) return false;
-                    return d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth;
-                }).length;
+                // --- Daily Data Construction ---
+                const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
+                    const day = i + 1;
+                    const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
+                    
+                    // Filter events for this specific day
+                    const filterDay = (list, typeFilter=null, dateKey='date') => list.filter(item => {
+                        const d = parseDate(item[dateKey]);
+                        if (!d) return false;
+                        const itemDateStr = formatDateStr(d);
+                        if (typeFilter && (!item.type || !item.type.includes(typeFilter))) return false;
+                        return itemDateStr === dateStr;
+                    }).length;
 
-                // Student Flow Counts
-                const mEnroll = filterInMonth(enrollments);
-                const mTransferIn = filterInMonth(transfers);
-                const mReturn = filterInMonth(statusChanges, "復会");
+                    const dEnroll = filterDay(enrollments);
+                    const dTransferIn = filterDay(transfers);
+                    const dReturn = filterDay(statusChanges, "復会");
+                    const dWithdraw = filterDay(statusChanges, "退会");
+                    const dGrad = filterDay(statusChanges, "卒業");
+                    const dTransferOut = filterDay(statusChanges, "転校");
+                    const dRecess = filterDay(statusChanges, "休会");
+
+                    // Daily Reports (Find specific report)
+                    const dayReport = dailyReports.find(r => {
+                        // dailyReports date format is YYYY-MM-DD string
+                        return r.date === dateStr; 
+                    }) || {};
+
+                    const dFlyers = Number(dayReport.flyers || 0);
+                    
+                    // Trial Apps (Application Date)
+                    const dTrialApp = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'date');
+                    const dEventApp = filterDay(trialApps.filter(a => a.type?.includes('イベント')), null, 'date');
+                    // Trial Execution (Trial Date)
+                    const dTrialExec = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'trialDate');
+                    const dEventExec = filterDay(trialApps.filter(a => a.type?.includes('イベント')), null, 'trialDate');
+
+                    const dRevenue = financials.reduce((sum, fin) => {
+                        return (fin.date === dateStr) ? sum + (Number(fin.amount) || 0) : sum;
+                    }, 0);
+
+                    return {
+                        name: `${day}日`,
+                        date: dateStr,
+                        // Flows
+                        newEnrollments: dEnroll,
+                        transferIns: dTransferIn,
+                        returns: dReturn,
+                        withdrawals: dWithdraw,
+                        withdrawals_neg: -dWithdraw,
+                        graduates_neg: -dGrad,
+                        transfers_neg: -dTransferOut,
+                        recesses_neg: -dRecess,
+                        // Marketing
+                        flyers: dFlyers,
+                        trialApp: dTrialApp,
+                        eventApp: dEventApp,
+                        trialExec: dTrialExec,
+                        eventExec: dEventExec,
+                        // Financial
+                        revenue: dRevenue
+                    };
+                });
+
+                // --- Weekly Aggregation ---
+                const weeklyData = weeks.map(week => {
+                    const daysInWeek = dailyData.slice(week.startDay - 1, week.endDay);
+                    const sum = (key) => daysInWeek.reduce((acc, d) => acc + (d[key] || 0), 0);
+                    
+                    return {
+                        name: week.name,
+                        label: week.label,
+                        newEnrollments: sum('newEnrollments'),
+                        transferIns: sum('transferIns'),
+                        returns: sum('returns'),
+                        withdrawals: sum('withdrawals'),
+                        withdrawals_neg: sum('withdrawals_neg'),
+                        graduates_neg: sum('graduates_neg'),
+                        transfers_neg: sum('transfers_neg'),
+                        recesses_neg: sum('recesses_neg'),
+                        flyers: sum('flyers'),
+                        trialApp: sum('trialApp'),
+                        eventApp: sum('eventApp'),
+                        trialExec: sum('trialExec'),
+                        eventExec: sum('eventExec'),
+                        revenue: sum('revenue')
+                    };
+                });
+
+                // --- Monthly Aggregation ---
+                const sumDaily = (key) => dailyData.reduce((acc, d) => acc + (d[key] || 0), 0);
                 
-                const mWithdraw = filterInMonth(statusChanges, "退会");
-                const mGrad = filterInMonth(statusChanges, "卒業");
-                const mTransferOut = filterInMonth(statusChanges, "転校");
-                const mRecess = filterInMonth(statusChanges, "休会");
+                const mEnroll = sumDaily('newEnrollments');
+                const mTransferIn = sumDaily('transferIns');
+                const mReturn = sumDaily('returns');
+                const mWithdraw = sumDaily('withdrawals');
+                const mGrad = -sumDaily('graduates_neg'); // stored as neg in daily
+                const mTransferOut = -sumDaily('transfers_neg');
 
-                // Update Students
                 const netChange = (mEnroll + mTransferIn + mReturn) - (mWithdraw + mGrad + mTransferOut);
                 currentStudents += netChange;
 
-                // Assign Stats
-                stat.students = currentStudents;
-                stat.newEnrollments = mEnroll;
-                stat.transferIns = mTransferIn;
-                stat.returns = mReturn;
-                
-                stat.withdrawals = mWithdraw;
-                stat.withdrawals_neg = -mWithdraw;
-                stat.transfers_neg = -mTransferOut;
-                stat.graduates_neg = -mGrad;
-                stat.recesses_neg = -mRecess;
-
-                // Marketing Counts
-                // Daily Reports Sum for Flyers
-                const mFlyers = dailyReports.reduce((sum, r) => {
-                    const d = parseDate(r.date);
-                    if (d && d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth) {
-                        return sum + (Number(r.flyers) || 0);
-                    }
-                    return sum;
-                }, 0);
-                stat.flyers = mFlyers;
-
-                // Trial Apps (Using trial_applications collection)
-                // Assuming trialApps has 'date' for application and 'trialDate' for execution
-                const mTrialApp = filterInMonth(trialApps.filter(a => !a.type?.includes('イベント')), null); 
-                const mEventApp = filterInMonth(trialApps.filter(a => a.type?.includes('イベント')), null);
-                
-                // For Execution, we look at 'trialDate'
-                const mTrialExec = trialApps.filter(a => {
-                    const d = parseDate(a.trialDate);
-                    return d && d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth && !a.type?.includes('イベント');
-                }).length;
-                
-                const mEventExec = trialApps.filter(a => {
-                    const d = parseDate(a.trialDate);
-                    return d && d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth && a.type?.includes('イベント');
-                }).length;
-
-                stat.trialApp = mTrialApp;
-                stat.eventApp = mEventApp;
-                stat.trialExec = mTrialExec;
-                stat.eventExec = mEventExec;
-
-                // Revenue Aggregation
-                const monthRevenue = financials.reduce((sum, fin) => {
-                    const d = parseDate(fin.date); 
-                    if (!d) return sum;
-                    if (d.getFullYear() === targetMonthYear && d.getMonth() === jsMonth) {
-                        return sum + (Number(fin.amount) || 0);
-                    }
-                    return sum;
-                }, 0);
-                stat.revenue = monthRevenue;
+                return {
+                    name: monthName,
+                    students: currentStudents,
+                    newEnrollments: mEnroll,
+                    transferIns: mTransferIn,
+                    returns: mReturn,
+                    withdrawals: mWithdraw,
+                    withdrawals_neg: sumDaily('withdrawals_neg'),
+                    transfers_neg: sumDaily('transfers_neg'),
+                    graduates_neg: sumDaily('graduates_neg'),
+                    recesses_neg: sumDaily('recesses_neg'),
+                    
+                    flyers: sumDaily('flyers'),
+                    trialApp: sumDaily('trialApp'),
+                    trialExec: sumDaily('trialExec'),
+                    eventApp: sumDaily('eventApp'),
+                    eventExec: sumDaily('eventExec'),
+                    
+                    revenue: sumDaily('revenue'),
+                    
+                    // Detailed Breakdown
+                    daily: dailyData,
+                    weekly: weeklyData
+                };
             });
 
             return monthlyStats;
@@ -265,7 +327,7 @@
         };
 
         const StatCard = ({ title, value, subValue, icon: Icon, colorClass, details }) => (
-            <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-l-transparent hover:border-l-brand-orange transition-all duration-200 group">
+            <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-l-transparent hover:border-l-brand-orange transition-all duration-200 group h-full">
                 <div className="flex justify-between items-start">
                     <div>
                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{title}</p>
@@ -335,7 +397,7 @@
             const [consoleMode, setConsoleMode] = useState('select'); 
             const [selectedCampusId, setSelectedCampusId] = useState(null);
             const [campusList, setCampusList] = useState([]);
-            const [selectedYear, setSelectedYear] = useState(2024);
+            const [selectedYear, setSelectedYear] = useState(2025); // Default to 2025 based on prompt
             const [notification, setNotification] = useState(null);
             
             // Global Data State
@@ -441,11 +503,15 @@
         // ==========================================
         function HQConsole({ onBack, campusList, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
             const [activeTab, setActiveTab] = useState('dashboard');
+            const [viewMode, setViewMode] = useState('annual'); // annual, monthly, weekly
+            const [selectedMonth, setSelectedMonth] = useState('4月');
+            
             const [newCampusName, setNewCampusName] = useState("");
             const [newCampusId, setNewCampusId] = useState("");
 
             // Aggregate Data for HQ
-            const dashboardData = useMemo(() => {
+            // Returns an array of MONTHLY objects, each containing daily and weekly breakdowns
+            const fullDashboardData = useMemo(() => {
                 return processDashboardData(
                     campusList, 
                     allData.enrollments, 
@@ -458,22 +524,48 @@
                 );
             }, [allData, campusList, selectedYear]);
 
+            // Determine what data to display based on viewMode
+            const displayData = useMemo(() => {
+                if (viewMode === 'annual') {
+                    return fullDashboardData;
+                } else {
+                    const targetMonthData = fullDashboardData.find(m => m.name === selectedMonth);
+                    if (!targetMonthData) return [];
+                    return viewMode === 'weekly' ? targetMonthData.weekly : targetMonthData.daily;
+                }
+            }, [fullDashboardData, viewMode, selectedMonth]);
+
             const totals = useMemo(() => {
-                return dashboardData.reduce((acc, curr) => ({
-                    revenue: acc.revenue + curr.revenue,
-                    newEnrollments: acc.newEnrollments + curr.newEnrollments,
-                    withdrawals: acc.withdrawals + curr.withdrawals,
-                    transferIns: acc.transferIns + curr.transferIns,
-                    returns: acc.returns + curr.returns,
-                    graduates: acc.graduates_neg + curr.graduates_neg, // neg
-                    transfers: acc.transfers_neg + curr.transfers_neg, // neg
-                    flyers: acc.flyers + curr.flyers,
-                    trialApp: acc.trialApp + curr.trialApp,
-                    trialExec: acc.trialExec + curr.trialExec,
+                // Calculate totals based on DISPLAY data (which might be just one month's days/weeks)
+                // If annual, displayData is 12 months. If monthly, displayData is ~30 days.
+                // We need to normalize key names or just sum appropriate fields.
+                
+                return displayData.reduce((acc, curr) => ({
+                    revenue: acc.revenue + (curr.revenue || 0),
+                    newEnrollments: acc.newEnrollments + (curr.newEnrollments || 0),
+                    withdrawals: acc.withdrawals + (curr.withdrawals || 0),
+                    transferIns: acc.transferIns + (curr.transferIns || 0),
+                    returns: acc.returns + (curr.returns || 0),
+                    // For negative values in charts, we might want absolute totals here
+                    graduates: acc.graduates + Math.abs(curr.graduates_neg || 0),
+                    transfers: acc.transfers + Math.abs(curr.transfers_neg || 0),
+                    flyers: acc.flyers + (curr.flyers || 0),
+                    trialApp: acc.trialApp + (curr.trialApp || 0),
+                    trialExec: acc.trialExec + (curr.trialExec || 0),
                 }), { revenue: 0, newEnrollments: 0, withdrawals: 0, transferIns: 0, returns: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0 });
-            }, [dashboardData]);
+            }, [displayData]);
             
-            const currentTotalStudents = dashboardData[dashboardData.length - 1]?.students || 0;
+            // Current Total Students: For annual, it's the last month. For monthly/weekly, it implies the student count at end of period?
+            // Actually simpler to just take the student count from the latest available data point in annual mode.
+            // But for Month/Week views, we don't track running total per day in this simplified structure (only flow).
+            // So we'll use the annual data's last month for "Current Students" regardless of view, or specific month if in monthly view.
+            const currentTotalStudents = useMemo(() => {
+                if (viewMode === 'annual') {
+                    return fullDashboardData[fullDashboardData.length - 1]?.students || 0;
+                }
+                const mData = fullDashboardData.find(m => m.name === selectedMonth);
+                return mData ? mData.students : 0;
+            }, [fullDashboardData, viewMode, selectedMonth]);
 
             const handleAddCampus = async () => {
                 if (!newCampusId || !newCampusName) return showNotify("必須項目が空です", 'error');
@@ -494,6 +586,8 @@
                 } catch(e) { showNotify("エラー: " + e.message, 'error'); }
             };
 
+            const viewLabel = { 'annual': '年度', 'monthly': '月度', 'weekly': '週次' }[viewMode];
+
             return (
                 <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
                     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col z-10">
@@ -513,7 +607,28 @@
                     <main className="flex-1 overflow-y-auto">
                         <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
                             <h2 className="text-xl font-bold text-gray-800">{{dashboard:'全校サマリー', students:'生徒数・入退会', marketing:'集客・ファネル', settings:'校舎マスタ管理'}[activeTab]}</h2>
-                            <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-3">
+                                {/* View Mode Switcher */}
+                                {activeTab !== 'settings' && (
+                                    <>
+                                        <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+                                            {['annual','monthly','weekly'].map(m => (
+                                                <button key={m} onClick={()=>setViewMode(m)} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${viewMode===m ? 'bg-white text-brand-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                                    {{annual:'年度', monthly:'月度', weekly:'週次'}[m]}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        {viewMode !== 'annual' && (
+                                            <div className="flex items-center bg-gray-50 rounded-lg px-2 py-1 border border-gray-200">
+                                                <select value={selectedMonth} onChange={(e)=>setSelectedMonth(e.target.value)} className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer">
+                                                    {MONTHS_LIST.map(m=><option key={m} value={m}>{m}</option>)}
+                                                </select>
+                                            </div>
+                                        )}
+                                        <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                                    </>
+                                )}
+                                
                                 <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-blue outline-none">
                                     {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
                                 </select>
@@ -524,15 +639,15 @@
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                        <StatCard title="年間売上 (CSV集計)" value={formatYen(totals.revenue)} subValue="アップロード済データ計" icon={DollarSign} colorClass="text-brand-blue" />
-                                        <StatCard title="現在在籍数" value={`${currentTotalStudents}名`} subValue="推移末尾" icon={Users} colorClass="text-brand-orange" />
-                                        <StatCard title="年間入会" value={`${totals.newEnrollments}名`} subValue="累計" icon={TrendingUp} colorClass="text-emerald-500" />
-                                        <StatCard title="年間退会" value={`${totals.withdrawals}名`} subValue="累計" icon={TrendingUp} colorClass="text-rose-500" />
+                                        <StatCard title={`売上 (${viewLabel})`} value={formatYen(totals.revenue)} subValue="集計対象期間計" icon={DollarSign} colorClass="text-brand-blue" />
+                                        <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末時点':'月末時点'} icon={Users} colorClass="text-brand-orange" />
+                                        <StatCard title={`入会数 (${viewLabel})`} value={`${totals.newEnrollments}名`} subValue="期間合計" icon={TrendingUp} colorClass="text-emerald-500" />
+                                        <StatCard title={`退会数 (${viewLabel})`} value={`${totals.withdrawals}名`} subValue="期間合計" icon={TrendingUp} colorClass="text-rose-500" />
                                     </div>
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-80">
-                                        <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 売上推移</h3>
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 売上推移 ({viewLabel})</h3>
                                         <ResponsiveContainer width="100%" height="90%">
-                                            <AreaChart data={dashboardData}><defs><linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#1E51A2" stopOpacity={0.8}/><stop offset="95%" stopColor="#1E51A2" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="name"/><YAxis/><Tooltip formatter={(value)=>formatYen(value)}/><Area type="monotone" dataKey="revenue" stroke="#1E51A2" fillOpacity={1} fill="url(#colorRev)"/></AreaChart>
+                                            <AreaChart data={displayData}><defs><linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#1E51A2" stopOpacity={0.8}/><stop offset="95%" stopColor="#1E51A2" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="name" interval={0} /><YAxis/><Tooltip formatter={(value)=>formatYen(value)}/><Area type="monotone" dataKey="revenue" stroke="#1E51A2" fillOpacity={1} fill="url(#colorRev)"/></AreaChart>
                                         </ResponsiveContainer>
                                     </div>
                                 </div>
@@ -541,16 +656,16 @@
                             {activeTab === 'students' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                        <StatCard title="年間増加数" value={`${totals.newEnrollments + totals.transferIns + totals.returns}名`} subValue="入会+転入+復会" icon={Users} colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}, {label:'復会', value:totals.returns}]} />
-                                        <StatCard title="年間減少数" value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} subValue="退会+転校+卒業" icon={Users} colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} />
-                                        <StatCard title="純増数" value={`${(totals.newEnrollments + totals.transferIns + totals.returns) - (totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates))}名`} subValue="年間通算" icon={TrendingUp} colorClass="text-brand-blue" />
+                                        <StatCard title="期間内増加" value={`${totals.newEnrollments + totals.transferIns + totals.returns}名`} subValue="入会+転入+復会" icon={Users} colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}, {label:'復会', value:totals.returns}]} />
+                                        <StatCard title="期間内減少" value={`${totals.withdrawals + totals.transfers + totals.graduates}名`} subValue="退会+転校+卒業" icon={Users} colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:totals.transfers}, {label:'卒業', value:totals.graduates}]} />
+                                        <StatCard title="期間内純増" value={`${(totals.newEnrollments + totals.transferIns + totals.returns) - (totals.withdrawals + totals.transfers + totals.graduates)}名`} subValue="トータル増減" icon={TrendingUp} colorClass="text-brand-blue" />
                                     </div>
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
-                                        <h3 className="text-lg font-bold text-gray-800 mb-6">詳細生徒数増減フロー</h3>
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6">生徒数増減詳細 ({viewLabel})</h3>
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={dashboardData} stackOffset="sign">
+                                            <BarChart data={displayData} stackOffset="sign">
                                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                <XAxis dataKey="name" />
+                                                <XAxis dataKey="name" interval={0} />
                                                 <YAxis />
                                                 <Tooltip />
                                                 <Legend />
@@ -571,11 +686,11 @@
                             {activeTab === 'marketing' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
-                                        <h3 className="text-lg font-bold text-gray-800 mb-6">集客ファネル分析</h3>
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6">集客ファネル推移 ({viewLabel})</h3>
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart data={dashboardData}>
+                                            <ComposedChart data={displayData}>
                                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                <XAxis dataKey="name" />
+                                                <XAxis dataKey="name" interval={0} />
                                                 <YAxis yAxisId="left" orientation="left" />
                                                 <YAxis yAxisId="right" orientation="right" />
                                                 <Tooltip />
