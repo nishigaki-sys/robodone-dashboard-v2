@@ -64,10 +64,10 @@
         import { 
             LayoutDashboard, Users, TrendingUp, Calendar, DollarSign, Activity, Loader2, 
             Settings, Plus, Trash2, School, FileText, Save, Sun, Cloud, CloudRain, Snowflake, Ban, PenTool, 
-            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown, RefreshCw, Database, PieChart as PieIcon
+            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown, RefreshCw, Database, PieChart as PieIcon, Clock
         } from "lucide-react";
         import { initializeApp } from "firebase/app";
-        import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from "firebase/firestore";
+        import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, where, serverTimestamp, writeBatch } from "firebase/firestore";
 
         // ==========================================
         // 1. Firebase Config & Utilities
@@ -308,8 +308,8 @@
             </div>
         );
 
-        // CSV Uploader with Enhanced Parsing Logic
-        const CsvUploader = ({ onUpload, isUploading }) => {
+        // CSV Uploader with Enhanced Parsing Logic & Year Selection
+        const CsvUploader = ({ onUpload, isUploading, targetYear, setTargetYear }) => {
             const fileInputRef = useRef(null);
             
             const handleFileChange = (e) => {
@@ -326,7 +326,6 @@
                 const lines = text.split(/\r\n|\n/);
                 const data = [];
                 
-                // Identify Header Line (Accounting Format)
                 let headerIdx = -1;
                 for(let i=0; i<lines.length; i++) {
                     if (lines[i].includes('勘定コード') || lines[i].includes('科目') || lines[i].includes('４月')) {
@@ -341,63 +340,46 @@
                 }
 
                 const headers = lines[headerIdx].split(',').map(h => h.trim());
-                // Map month columns (assuming ４月, ５月... format in header)
-                const monthMap = {}; // { '４月': colIndex, ... }
+                const monthMap = {}; 
                 headers.forEach((h, idx) => {
                     const mMatch = h.match(/([０-９0-9]+)月/);
                     if (mMatch) monthMap[h] = idx;
                 });
 
-                // Parse Rows
                 for (let i = headerIdx + 1; i < lines.length; i++) {
                     const line = lines[i].trim();
                     if (!line) continue;
                     
-                    // Handle potential quoted fields if necessary (simple split for now)
                     const cols = line.split(',');
                     const codeCol = cols[0] ? cols[0].trim() : '';
                     
-                    // Skip aggregation rows (usually start with A or are empty)
-                    // Only process rows with numeric 8-digit codes or similar specific item patterns
-                    // Regex: Starts with digit
                     if (!/^\d/.test(codeCol)) continue;
 
-                    // Extract Name and Code
-                    // Format: "51000500  商品売上"
                     const parts = codeCol.split(/\s+/);
                     const code = parts[0];
                     const name = parts.length > 1 ? parts.slice(1).join(' ') : '不明';
 
-                    // Determine Category
-                    // 5xxx: Revenue, 6xxx: Expense (Simplified logic)
                     let category = 'other';
                     let signMultiplier = 1;
 
                     if (code.startsWith('5')) {
                         category = 'revenue';
-                        signMultiplier = -1; // Revenue is often negative in export, flip to positive
+                        signMultiplier = -1; 
                     } else if (code.startsWith('6') || code.startsWith('7')) {
                         category = 'expense';
                         signMultiplier = 1;
                     } else {
-                        continue; // Skip non-PL items for now
+                        continue; 
                     }
 
-                    // Extract Monthly Values
                     Object.entries(monthMap).forEach(([monthLabel, colIdx]) => {
                         const rawVal = cols[colIdx];
                         if (rawVal) {
                             const val = Number(rawVal);
                             if (!isNaN(val) && val !== 0) {
-                                // Determine Year for this month
-                                // Header is usually fiscal year. We need context year. 
-                                // Let's assume input is for the *selectedYear* in the app context? 
-                                // For simplicity in this parser, we map 4月-12月 to Year, 1月-3月 to Year+1.
-                                // We will return { month: 4, value: ... } and let uploader handle Year assignment based on app state.
                                 const monthNum = parseInt(monthLabel.replace('月','').replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)));
-                                
                                 data.push({
-                                    month: monthNum, // 1-12
+                                    month: monthNum,
                                     category,
                                     subCategory: name,
                                     amount: val * signMultiplier,
@@ -413,13 +395,26 @@
             };
 
             return (
-                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors cursor-pointer group" onClick={() => fileInputRef.current?.click()}>
-                    <input type="file" accept=".csv" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
-                    <div className="w-16 h-16 bg-blue-50 text-brand-blue rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
-                        {isUploading ? <Loader2 className="w-8 h-8 animate-spin" /> : <Upload className="w-8 h-8" />}
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <label className="text-sm font-bold text-gray-700">取り込み対象年度:</label>
+                        <select 
+                            value={targetYear} 
+                            onChange={(e) => setTargetYear(Number(e.target.value))} 
+                            className="bg-white border border-gray-300 rounded px-3 py-1.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-brand-blue"
+                        >
+                            {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
+                        </select>
                     </div>
-                    <h3 className="text-lg font-bold text-gray-700 mb-1">収支CSVファイルをアップロード</h3>
-                    <p className="text-sm text-gray-400">対応形式: ロボ団営業部収支計算表 (横持ち形式)</p>
+
+                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors cursor-pointer group" onClick={() => fileInputRef.current?.click()}>
+                        <input type="file" accept=".csv" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
+                        <div className="w-16 h-16 bg-blue-50 text-brand-blue rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+                            {isUploading ? <Loader2 className="w-8 h-8 animate-spin" /> : <Upload className="w-8 h-8" />}
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-700 mb-1">収支CSVファイルをアップロード</h3>
+                        <p className="text-sm text-gray-400">対応形式: ロボ団営業部収支計算表 (横持ち形式)</p>
+                    </div>
                 </div>
             );
         };
@@ -439,7 +434,7 @@
             const [isUsingCache, setIsUsingCache] = useState(false);
 
             const [allData, setAllData] = useState({
-                enrollments: [], statusChanges: [], transfers: [], dailyReports: [], financials: [], trialApps: []
+                enrollments: [], statusChanges: [], transfers: [], dailyReports: [], financials: [], trialApps: [], financialUpdates: []
             });
 
             const showNotify = (msg, type='success') => {
@@ -447,7 +442,7 @@
                 setTimeout(() => setNotification(null), 3000);
             };
 
-            // Fetch & Cache Logic (Same as before)
+            // Fetch & Cache Logic
             const loadFromCache = () => {
                 try {
                     const cCamp = localStorage.getItem(CACHE_KEYS.CAMPUSES);
@@ -470,14 +465,15 @@
 
                 setIsSyncing(true);
                 try {
-                    const [campuses, enroll, status, trans, reports, finance, trials] = await Promise.all([
+                    const [campuses, enroll, status, trans, reports, finance, trials, finUpdates] = await Promise.all([
                         getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
                         getDocs(collection(db, "enrollments")),
                         getDocs(collection(db, "status_changes")),
                         getDocs(collection(db, "transfers")),
                         getDocs(collection(db, "daily_reports")),
                         getDocs(collection(db, "financials")),
-                        getDocs(collection(db, "trial_applications"))
+                        getDocs(collection(db, "trial_applications")),
+                        getDocs(collection(db, "financial_updates"))
                     ]);
 
                     const cList = campuses.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -487,7 +483,8 @@
                         transfers: trans.docs.map(d => ({id:d.id, ...d.data()})),
                         dailyReports: reports.docs.map(d => ({id:d.id, ...d.data()})),
                         financials: finance.docs.map(d => ({id:d.id, ...d.data()})),
-                        trialApps: trials.docs.map(d => ({id:d.id, ...d.data()}))
+                        trialApps: trials.docs.map(d => ({id:d.id, ...d.data()})),
+                        financialUpdates: finUpdates.docs.map(d => ({id:d.id, ...d.data()}))
                     };
 
                     setCampusList(cList);
@@ -790,36 +787,160 @@
             const [uploading, setUploading] = useState(false);
             const [planData, setPlanData] = useState({});
             const [isSavingPlan, setIsSavingPlan] = useState(false);
+            const [uploadTargetYear, setUploadTargetYear] = useState(selectedYear); // New state for upload year
+
+            // Determine latest update for this campus and year
+            const lastUploadInfo = useMemo(() => {
+                if (!campus || !allData.financialUpdates) return null;
+                const update = allData.financialUpdates.find(u => u.campusId === campus.id && u.fiscalYear === uploadTargetYear);
+                return update ? parseDate(update.updatedAt) : null;
+            }, [campus, allData.financialUpdates, uploadTargetYear]);
 
             // ... (Existing School Logic: fetchPlan, fetchReport, handleSaveReport, handleSavePlan) ...
+            useEffect(() => {
+                if (activeTab === 'plan' && campus) {
+                    const fetchPlan = async () => {
+                        try {
+                            const docRef = doc(db, "campus_plans", `${campus.id}_${selectedYear}`);
+                            const docSnap = await getDoc(docRef);
+                            setPlanData(docSnap.exists() ? docSnap.data().plans : createInitialPlanData());
+                        } catch (e) { console.error(e); }
+                    };
+                    fetchPlan();
+                }
+            }, [activeTab, campus, selectedYear]);
+
+            const createInitialPlanData = () => {
+                return MONTHS_LIST.reduce((acc, month) => {
+                    acc[month] = { enrollments: 0, trials: 0, touchTry: 0, flyers: 0, rate: 0 };
+                    return acc;
+                }, {});
+            };
+
+            useEffect(() => {
+                if (!campus) return;
+                const existing = allData.dailyReports.find(r => r.campusId === campus.id && r.date === reportDate);
+                if (existing) {
+                    setInputData({
+                        weather: existing.weather || 'sunny',
+                        flyers: existing.flyers || 0,
+                        touch: existing.touchTry || 0,
+                        trial: existing.trialLessons || 0
+                    });
+                } else {
+                    setInputData({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
+                }
+            }, [reportDate, allData.dailyReports, campus]);
+
+            const handleSaveReport = async () => {
+                if (!campus) return;
+                try {
+                    await setDoc(doc(db, "daily_reports", `${campus.id}_${reportDate}`), {
+                        campusId: campus.id,
+                        date: reportDate,
+                        weather: inputData.weather,
+                        flyers: Number(inputData.flyers),
+                        touchTry: Number(inputData.touch),
+                        trialLessons: Number(inputData.trial),
+                        updatedAt: serverTimestamp()
+                    });
+                    refreshData();
+                    showNotify("日報を保存しました");
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+
+            const handlePlanChange = (month, field, value) => {
+                setPlanData(prev => {
+                    const newData = { ...prev };
+                    newData[month] = { ...newData[month], [field]: Number(value) };
+                    if (field === 'enrollments' || field === 'trials') {
+                        const enr = field === 'enrollments' ? Number(value) : (newData[month].enrollments || 0);
+                        const tri = field === 'trials' ? Number(value) : (newData[month].trials || 0);
+                        newData[month].rate = tri > 0 ? ((enr / tri) * 100).toFixed(1) : 0;
+                    }
+                    return newData;
+                });
+            };
+
+            const handleSavePlan = async () => {
+                if (!campus) return;
+                setIsSavingPlan(true);
+                try {
+                    await setDoc(doc(db, "campus_plans", `${campus.id}_${selectedYear}`), { 
+                        campusId: campus.id, 
+                        year: selectedYear, 
+                        plans: planData, 
+                        updatedAt: serverTimestamp() 
+                    });
+                    showNotify("年間計画を保存しました");
+                } catch (e) { showNotify("保存失敗: " + e.message, 'error'); } finally { setIsSavingPlan(false); }
+            };
             
+            // Enhanced CSV Upload with Delete-Insert Logic
             const handleCsvUpload = async (parsedData) => {
                 if (!campus) return;
                 setUploading(true);
                 try {
-                    const batch = writeBatch(db);
-                    // Generate dates from monthly data (Use 1st day of month)
-                    parsedData.forEach(item => {
-                        let tYear = Number(selectedYear);
-                        // Convert Month 1-3 to Next Year
-                        if (item.month <= 3) tYear += 1;
-                        
-                        // Set Date to 1st of month
-                        const dateStr = `${tYear}-${('0'+item.month).slice(-2)}-01`;
-                        
-                        const ref = doc(collection(db, "financials"));
-                        batch.set(ref, { 
-                            date: dateStr, 
-                            amount: item.amount, 
-                            category: item.category, 
-                            subCategory: item.subCategory, 
-                            campusId: campus.id, 
-                            createdAt: serverTimestamp() 
+                    const batchSize = 450; // Firestore limit 500, keep safety margin
+                    
+                    // 1. DELETE existing data for this campus and year
+                    const q = query(
+                        collection(db, "financials"), 
+                        where("campusId", "==", campus.id),
+                        where("fiscalYear", "==", uploadTargetYear)
+                    );
+                    const snapshot = await getDocs(q);
+                    
+                    // Delete in batches
+                    const chunks = [];
+                    for (let i = 0; i < snapshot.docs.length; i += batchSize) {
+                        chunks.push(snapshot.docs.slice(i, i + batchSize));
+                    }
+                    
+                    for (const chunk of chunks) {
+                        const deleteBatch = writeBatch(db);
+                        chunk.forEach(doc => deleteBatch.delete(doc.ref));
+                        await deleteBatch.commit();
+                    }
+
+                    // 2. INSERT new data in batches
+                    const insertChunks = [];
+                    for (let i = 0; i < parsedData.length; i += batchSize) {
+                        insertChunks.push(parsedData.slice(i, i + batchSize));
+                    }
+
+                    for (const chunk of insertChunks) {
+                        const insertBatch = writeBatch(db);
+                        chunk.forEach(item => {
+                            let tYear = Number(uploadTargetYear);
+                            // Convert Month 1-3 to Next Year (Calendar Year)
+                            if (item.month <= 3) tYear += 1;
+                            
+                            const dateStr = `${tYear}-${('0'+item.month).slice(-2)}-01`;
+                            
+                            const ref = doc(collection(db, "financials"));
+                            insertBatch.set(ref, { 
+                                date: dateStr, 
+                                fiscalYear: uploadTargetYear, // Add fiscalYear for query
+                                amount: item.amount, 
+                                category: item.category, 
+                                subCategory: item.subCategory, 
+                                campusId: campus.id, 
+                                createdAt: serverTimestamp() 
+                            });
                         });
+                        await insertBatch.commit();
+                    }
+
+                    // 3. Update Meta Data
+                    await setDoc(doc(db, "financial_updates", `${campus.id}_${uploadTargetYear}`), {
+                        campusId: campus.id,
+                        fiscalYear: uploadTargetYear,
+                        updatedAt: serverTimestamp()
                     });
-                    await batch.commit();
+
                     refreshData();
-                    showNotify(`${parsedData.length}件のデータを取り込みました`);
+                    showNotify(`${parsedData.length}件のデータを取り込みました (重複削除済み)`);
                 } catch (e) { showNotify("エラー: " + e.message, 'error'); } finally { setUploading(false); }
             };
 
@@ -867,11 +988,25 @@
                             )}
                             {activeTab === 'finance' && (
                                 <div className="space-y-8 bg-white p-8 rounded-xl shadow-sm border border-gray-100 animate-in fade-in">
-                                    <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><FileSpreadsheet className="w-5 h-5 mr-2 text-brand-orange"/> 収支CSV取込 (横持ち形式)</h3>
-                                    <div className="max-w-xl mx-auto"><CsvUploader onUpload={handleCsvUpload} isUploading={uploading}/></div>
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-lg font-bold text-gray-800 flex items-center"><FileSpreadsheet className="w-5 h-5 mr-2 text-brand-orange"/> 収支CSV取込 (横持ち形式)</h3>
+                                        {lastUploadInfo && (
+                                            <div className="flex items-center text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full border border-gray-200">
+                                                <Clock className="w-3 h-3 mr-1.5" />
+                                                最終更新: <span className="font-bold ml-1">{lastUploadInfo.toLocaleString()}</span>
+                                                <span className="ml-1 text-gray-400">({uploadTargetYear}年度)</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    <div className="max-w-xl mx-auto">
+                                        <CsvUploader onUpload={handleCsvUpload} isUploading={uploading} targetYear={uploadTargetYear} setTargetYear={setUploadTargetYear} />
+                                    </div>
+                                    
                                     <div className="text-sm text-gray-500 bg-gray-50 p-4 rounded-lg">
                                         <p className="font-bold mb-2">取込ルール:</p>
                                         <ul className="list-disc list-inside space-y-1">
+                                            <li><span className="font-bold text-red-500">重要:</span> 取り込みを実行すると、選択した年度の既存データは全て上書き(削除→再登録)されます。</li>
                                             <li>「勘定コード」列と月別列（4月～3月）が必要です。</li>
                                             <li>コードが数字で始まる行のみを取り込みます（集計行は除外）。</li>
                                             <li>5000番台のコードは「売上」として扱い、マイナス値をプラスに変換します。</li>
