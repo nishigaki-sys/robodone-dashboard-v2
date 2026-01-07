@@ -276,6 +276,45 @@
                     };
                 });
 
+                // Weekly Aggregation (Fixed: Added logic for weeklyData)
+                const weeklyData = weeks.map(week => {
+                    const daysInWeek = dailyData.slice(week.startDay - 1, week.endDay);
+                    const sum = (key) => daysInWeek.reduce((acc, d) => acc + (d[key] || 0), 0);
+                    
+                    return {
+                        name: week.name,
+                        label: week.label,
+                        // Students & Marketing
+                        newEnrollments: sum('newEnrollments'),
+                        transferIns: sum('transferIns'),
+                        returns: sum('returns'),
+                        withdrawals: sum('withdrawals'),
+                        withdrawals_neg: sum('withdrawals_neg'),
+                        graduates_neg: sum('graduates_neg'),
+                        transfers_neg: sum('transfers_neg'),
+                        recesses_neg: sum('recesses_neg'),
+                        flyers: sum('flyers'),
+                        trialApp: sum('trialApp'),
+                        eventApp: sum('eventApp'),
+                        trialExec: sum('trialExec'),
+                        eventExec: sum('eventExec'),
+                        
+                        // Financials
+                        revenue: sum('revenue'),
+                        expense: sum('expenseTotal'),
+                        profit: sum('profit'),
+                        
+                        // Detailed Expenses
+                        ad: sum('ad'),
+                        sales: sum('sales'),
+                        labor: sum('labor'),
+                        facility: sum('facility'),
+                        admin: sum('admin'),
+                        hq: sum('hq'),
+                        other: sum('other')
+                    };
+                });
+
                 // Monthly Sums
                 const sumDaily = (key) => dailyData.reduce((acc, d) => acc + (d[key] || 0), 0);
                 const netChange = (sumDaily('newEnrollments') + sumDaily('transferIns') + sumDaily('returns')) 
@@ -324,6 +363,7 @@
                     // For now, we'll assume Profit = Operating Profit for this level of data.
                     
                     daily: dailyData,
+                    weekly: weeklyData, // Fixed: Added weeklyData to return object
                     detailItems // Data for Modal
                 };
             });
