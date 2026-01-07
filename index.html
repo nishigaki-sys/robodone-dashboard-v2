@@ -65,7 +65,7 @@
         import { 
             LayoutDashboard, Users, TrendingUp, Calendar, DollarSign, Activity, Loader2, 
             Settings, Plus, Trash2, School, FileText, Save, Sun, Cloud, CloudRain, Snowflake, Ban, PenTool, 
-            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown, RefreshCw, Database, PieChart as PieIcon, Clock, Search
+            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown, RefreshCw, Database, PieChart as PieIcon, Clock, Search, MapPin
         } from "lucide-react";
         import { initializeApp } from "firebase/app";
         import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, where, serverTimestamp, writeBatch } from "firebase/firestore";
@@ -189,18 +189,29 @@
         };
 
         const processDashboardData = (campuses, enrollments, statusChanges, transfers, dailyReports, financials, trialApps, targetYear) => {
-            // ... (Base Student Count Logic same as before) ...
             const sheetNameToIdMap = {};
+            const targetCampusIds = new Set(campuses.map(c => c.id)); // Set of IDs for filtering
+
             campuses.forEach(c => {
                 const key = c.sheetName || c.name;
                 sheetNameToIdMap[key] = c.id;
                 sheetNameToIdMap[normalizeString(key)] = c.id;
             });
 
+            // Helper to check if item belongs to selected campuses
+            const isTargetCampus = (item) => {
+                let cId = item.campusId; // Direct ID if available
+                if (!cId && item.campus) { // Resolve from name
+                    cId = sheetNameToIdMap[item.campus] || sheetNameToIdMap[normalizeString(item.campus)];
+                }
+                return cId && targetCampusIds.has(cId);
+            };
+
             let baseStudentCount = 0;
             const countBefore = (list, typeFilter = null) => {
                 let count = 0;
                 list.forEach(item => {
+                    if (!isTargetCampus(item)) return; // Filter by campus
                     const d = parseDate(item.date);
                     if (!d || getFiscalYear(d) >= targetYear) return;
                     if (typeFilter && (!item.type || !item.type.includes(typeFilter))) return;
@@ -220,8 +231,9 @@
             const monthlyStats = MONTHS_LIST.map((monthName, mIdx) => {
                 const { weeks, daysInMonth, year: tYear, month: tMonth } = getWeeksStruct(targetYear, mIdx);
                 
-                // Pre-filter financials for this month to optimize loop
+                // Pre-filter financials for this month AND campus
                 const mFinancials = financials.filter(fin => {
+                    if (!isTargetCampus(fin)) return false;
                     const d = parseDate(fin.date);
                     return d && d.getFullYear() === tYear && d.getMonth() === tMonth;
                 });
@@ -231,12 +243,13 @@
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
                     
                     const filterDay = (list, typeFilter=null, dateKey='date') => list.filter(item => {
+                        if (!isTargetCampus(item)) return false; // Filter by campus
                         const d = parseDate(item[dateKey]);
                         if (!d) return false;
                         return formatDateStr(d) === dateStr && (!typeFilter || item.type?.includes(typeFilter));
                     }).length;
 
-                    // Students & Marketing (Same as before)
+                    // Students
                     const dEnroll = filterDay(enrollments);
                     const dTransferIn = filterDay(transfers);
                     const dReturn = filterDay(statusChanges, "復会");
@@ -244,8 +257,13 @@
                     const dGrad = filterDay(statusChanges, "卒業");
                     const dTransferOut = filterDay(statusChanges, "転校");
                     const dRecess = filterDay(statusChanges, "休会");
-                    const dayReport = dailyReports.find(r => r.date === dateStr) || {};
-                    const dFlyers = Number(dayReport.flyers || 0);
+
+                    // Marketing
+                    // DailyReports: Need to sum up if multiple campuses selected, or single if one.
+                    // Filter dailyReports by date and target campuses
+                    const dayReports = dailyReports.filter(r => r.date === dateStr && isTargetCampus(r));
+                    const dFlyers = dayReports.reduce((sum, r) => sum + (Number(r.flyers) || 0), 0);
+                    
                     const dTrialApp = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'date');
                     const dEventApp = filterDay(trialApps.filter(a => a.type?.includes('イベント')), null, 'date');
                     const dTrialExec = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'trialDate');
@@ -276,7 +294,7 @@
                     };
                 });
 
-                // Weekly Aggregation (Fixed: Added logic for weeklyData)
+                // Weekly Aggregation
                 const weeklyData = weeks.map(week => {
                     const daysInWeek = dailyData.slice(week.startDay - 1, week.endDay);
                     const sum = (key) => daysInWeek.reduce((acc, d) => acc + (d[key] || 0), 0);
@@ -335,7 +353,6 @@
                     }
                 });
                 
-                // Sort items
                 Object.keys(detailItems).forEach(k => {
                     detailItems[k].sort((a,b) => b.value - a.value);
                 });
@@ -344,9 +361,20 @@
                     name: monthName,
                     students: currentStudents,
                     newEnrollments: sumDaily('newEnrollments'),
+                    transferIns: sumDaily('transferIns'),
+                    returns: sumDaily('returns'),
                     withdrawals: sumDaily('withdrawals'),
-                    // ... other student/marketing sums omitted for brevity but should be same as before ...
+                    withdrawals_neg: sumDaily('withdrawals_neg'),
+                    transfers_neg: sumDaily('transfers_neg'),
+                    graduates_neg: sumDaily('graduates_neg'),
+                    recesses_neg: sumDaily('recesses_neg'),
                     
+                    flyers: sumDaily('flyers'),
+                    trialApp: sumDaily('trialApp'),
+                    trialExec: sumDaily('trialExec'),
+                    eventApp: sumDaily('eventApp'),
+                    eventExec: sumDaily('eventExec'),
+
                     // Financials
                     revenue: sumDaily('revenue'),
                     ad: sumDaily('ad'),
@@ -357,13 +385,10 @@
                     hq: sumDaily('hq'),
                     other: sumDaily('other'),
                     expense: sumDaily('expenseTotal'),
-                    profit: sumDaily('profit'), // AA5 Operating Profit
-                    
-                    // Note: AA7 Ordinary Profit would include non-operating income/expense if we tracked it.
-                    // For now, we'll assume Profit = Operating Profit for this level of data.
+                    profit: sumDaily('profit'), 
                     
                     daily: dailyData,
-                    weekly: weeklyData, // Fixed: Added weeklyData to return object
+                    weekly: weeklyData,
                     detailItems // Data for Modal
                 };
             });
@@ -372,7 +397,7 @@
         };
 
         // ==========================================
-        // 3. UI Components
+        // 3. UI Components (Notification, StatCard, DetailModal, CsvUploader - Unchanged)
         // ==========================================
         const Notification = ({ msg, type, onClose }) => {
             if (!msg) return null;
@@ -385,7 +410,7 @@
             );
         };
 
-        const StatCard = ({ title, value, subValue, icon: Icon, colorClass }) => (
+        const StatCard = ({ title, value, subValue, icon: Icon, colorClass, details }) => (
             <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-l-transparent hover:border-l-brand-orange transition-all duration-200 group h-full">
                 <div className="flex justify-between items-start">
                     <div>
@@ -397,13 +422,20 @@
                     </div>
                 </div>
                 {subValue && <div className="mt-4 flex items-center text-sm"><span className="text-gray-400 font-medium">{subValue}</span></div>}
+                {details && (
+                    <div className="mt-4 pt-3 border-t border-slate-100 space-y-1">
+                        {details.map((item, idx) => (
+                            <div key={idx} className="flex justify-between text-xs text-slate-500">
+                                <span>{item.label}</span><span className="font-medium text-slate-700">{item.value}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         );
 
         const DetailModal = ({ isOpen, onClose, data, title, color }) => {
             if (!isOpen || !data) return null;
-            
-            // Format data for Pie Chart or Bar List
             const chartData = data.filter(d => d.value > 0);
             const total = chartData.reduce((acc, curr) => acc + curr.value, 0);
 
@@ -412,20 +444,13 @@
                     <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
                             <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-lg bg-white shadow-sm" style={{color: color}}>
-                                    <Search className="w-5 h-5"/>
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-gray-800">{title} 詳細内訳</h3>
-                                    <p className="text-sm text-gray-500">合計: <span className="font-bold text-gray-700">{formatYen(total)}</span></p>
-                                </div>
+                                <div className="p-2 rounded-lg bg-white shadow-sm" style={{color: color}}><Search className="w-5 h-5"/></div>
+                                <div><h3 className="text-xl font-bold text-gray-800">{title} 詳細内訳</h3><p className="text-sm text-gray-500">合計: <span className="font-bold text-gray-700">{formatYen(total)}</span></p></div>
                             </div>
                             <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X className="w-5 h-5 text-gray-500"/></button>
                         </div>
-                        
                         <div className="p-6 overflow-y-auto flex-1">
                             <div className="flex flex-col md:flex-row gap-8">
-                                {/* Chart Area */}
                                 <div className="w-full md:w-1/2 h-64">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
@@ -436,22 +461,14 @@
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
-                                
-                                {/* List Area */}
                                 <div className="w-full md:w-1/2 space-y-3">
                                     {chartData.map((item, idx) => (
                                         <div key={idx} className="flex justify-between items-center p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-3 h-3 rounded-full" style={{backgroundColor: PIE_COLORS[idx % PIE_COLORS.length]}}></div>
-                                                <div>
-                                                    <div className="text-sm font-bold text-gray-700">{item.name}</div>
-                                                    <div className="text-xs text-gray-400 font-mono">{item.code}</div>
-                                                </div>
+                                                <div><div className="text-sm font-bold text-gray-700">{item.name}</div><div className="text-xs text-gray-400 font-mono">{item.code}</div></div>
                                             </div>
-                                            <div className="text-right">
-                                                <div className="text-sm font-bold text-gray-800">{formatYen(item.value)}</div>
-                                                <div className="text-xs text-gray-400">{((item.value/total)*100).toFixed(1)}%</div>
-                                            </div>
+                                            <div className="text-right"><div className="text-sm font-bold text-gray-800">{formatYen(item.value)}</div><div className="text-xs text-gray-400">{((item.value/total)*100).toFixed(1)}%</div></div>
                                         </div>
                                     ))}
                                     {chartData.length === 0 && <div className="text-center text-gray-400 py-8">データがありません</div>}
@@ -478,10 +495,7 @@
                 const data = [];
                 let headerIdx = -1;
                 for(let i=0; i<lines.length; i++) {
-                    if (lines[i].includes('勘定コード') || lines[i].includes('科目') || lines[i].includes('４月')) {
-                        headerIdx = i;
-                        break;
-                    }
+                    if (lines[i].includes('勘定コード') || lines[i].includes('科目') || lines[i].includes('４月')) { headerIdx = i; break; }
                 }
                 if (headerIdx === -1) { alert("フォーマット認識エラー"); return; }
 
@@ -497,7 +511,7 @@
                     if (!line) continue;
                     const cols = line.split(',');
                     const codeCol = cols[0] ? cols[0].trim() : '';
-                    if (!/^\d/.test(codeCol)) continue; // Must start with digit
+                    if (!/^\d/.test(codeCol)) continue;
 
                     const parts = codeCol.split(/\s+/);
                     const code = parts[0];
@@ -515,13 +529,7 @@
                             const val = Number(rawVal);
                             if (!isNaN(val) && val !== 0) {
                                 const monthNum = parseInt(monthLabel.replace('月','').replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)));
-                                data.push({
-                                    month: monthNum,
-                                    category,
-                                    subCategory: name,
-                                    amount: val * signMultiplier,
-                                    accountCode: code
-                                });
+                                data.push({ month: monthNum, category, subCategory: name, amount: val * signMultiplier, accountCode: code });
                             }
                         }
                     });
@@ -554,7 +562,6 @@
         // 4. Main App & Consoles
         // ==========================================
         function App() {
-            // ... (Same state/fetch logic as before, just ensuring accountCode is fetched)
             const [consoleMode, setConsoleMode] = useState('select'); 
             const [selectedCampusId, setSelectedCampusId] = useState(null);
             const [campusList, setCampusList] = useState([]);
@@ -692,6 +699,7 @@
             const [selectedMonth, setSelectedMonth] = useState('4月');
             const [newCampusName, setNewCampusName] = useState("");
             const [newCampusId, setNewCampusId] = useState("");
+            const [selectedHQCampusId, setSelectedHQCampusId] = useState('All'); // Added for filtering
             
             // Modal State
             const [modalOpen, setModalOpen] = useState(false);
@@ -699,9 +707,15 @@
             const [modalTitle, setModalTitle] = useState("");
             const [modalColor, setModalColor] = useState("");
 
+            // Filter campuses based on selection
+            const filteredCampusList = useMemo(() => {
+                if (selectedHQCampusId === 'All') return campusList;
+                return campusList.filter(c => c.id === selectedHQCampusId);
+            }, [selectedHQCampusId, campusList]);
+
             const fullDashboardData = useMemo(() => {
-                return processDashboardData(campusList, allData.enrollments, allData.statusChanges, allData.transfers, allData.dailyReports, allData.financials, allData.trialApps, Number(selectedYear));
-            }, [allData, campusList, selectedYear]);
+                return processDashboardData(filteredCampusList, allData.enrollments, allData.statusChanges, allData.transfers, allData.dailyReports, allData.financials, allData.trialApps, Number(selectedYear));
+            }, [allData, filteredCampusList, selectedYear]);
 
             const displayData = useMemo(() => {
                 if (viewMode === 'annual') return fullDashboardData;
@@ -714,36 +728,34 @@
                     revenue: acc.revenue + (curr.revenue || 0),
                     expense: acc.expense + (curr.expense || 0),
                     profit: acc.profit + (curr.profit || 0),
-                    // ... other totals
-                }), { revenue: 0, expense: 0, profit: 0 });
+                    newEnrollments: acc.newEnrollments + (curr.newEnrollments || 0),
+                    transferIns: acc.transferIns + (curr.transferIns || 0),
+                    returns: acc.returns + (curr.returns || 0),
+                    withdrawals: acc.withdrawals + (curr.withdrawals || 0),
+                    graduates: acc.graduates + Math.abs(curr.graduates_neg || 0),
+                    transfers: acc.transfers + Math.abs(curr.transfers_neg || 0),
+                    flyers: acc.flyers + (curr.flyers || 0),
+                    trialApp: acc.trialApp + (curr.trialApp || 0),
+                    trialExec: acc.trialExec + (curr.trialExec || 0),
+                }), { revenue: 0, expense: 0, profit: 0, newEnrollments: 0, transferIns: 0, returns: 0, withdrawals: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0 });
             }, [displayData]);
 
-            // Handler for Graph Click
-            const handleBarClick = (data, index) => {
-                // If user clicks a specific bar/segment
-                if (data && data.activePayload && data.activePayload.length > 0) {
-                    const payload = data.activePayload[0].payload; // Row data (e.g., month stats)
-                    const dataKey = data.activeTooltipIndex !== undefined ? data.activePayload[0].dataKey : null; 
-                    
-                    // We need to know WHICH segment was clicked (Recharts passes dataKey in payload usually if specified?)
-                    // Recharts 'onClick' on Bar component gives access to the specific dataKey.
-                    // But here we use onClick on ComposedChart which is generic.
-                    // Better approach: onClick on individual <Bar>
-                }
-            };
+            // Current Students (Annual: last month, Monthly/Weekly: month end)
+            const currentTotalStudents = useMemo(() => {
+                if (viewMode === 'annual') return fullDashboardData[fullDashboardData.length - 1]?.students || 0;
+                const mData = fullDashboardData.find(m => m.name === selectedMonth);
+                return mData ? mData.students : 0;
+            }, [fullDashboardData, viewMode, selectedMonth]);
 
             const openDetailModal = (categoryKey, monthData) => {
                 if (!monthData || !monthData.detailItems || !monthData.detailItems[categoryKey]) return;
-                
                 setModalTitle(`${monthData.name} - ${CATEGORY_MAP[categoryKey].label}`);
                 setModalColor(CATEGORY_MAP[categoryKey].color);
                 setModalData(monthData.detailItems[categoryKey]);
                 setModalOpen(true);
             };
 
-            // Custom Click Handlers for Bars
             const onBarClick = (data, idx, e, catKey) => {
-                // data is the row object (e.g., { name: '4月', revenue: 100... })
                 openDetailModal(catKey, data);
             };
 
@@ -776,6 +788,13 @@
                             <div className="flex items-center space-x-3">
                                 {activeTab !== 'settings' && (
                                     <>
+                                        <div className="flex items-center bg-gray-100 rounded-lg px-2 py-1 border border-gray-200 mr-2">
+                                            <MapPin className="w-3 h-3 text-slate-500 mr-2" />
+                                            <select value={selectedHQCampusId} onChange={(e) => setSelectedHQCampusId(e.target.value)} className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer">
+                                                <option value="All">全校舎 (合計)</option>
+                                                {campusList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </select>
+                                        </div>
                                         <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
                                             {['annual','monthly','weekly'].map(m => (
                                                 <button key={m} onClick={()=>setViewMode(m)} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${viewMode===m ? 'bg-white text-brand-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -821,7 +840,6 @@
                                                 <Tooltip formatter={(value)=>formatYen(value)} />
                                                 <Legend />
                                                 
-                                                {/* Stacked Expenses */}
                                                 <Bar dataKey="ad" name="広告宣伝費" stackId="exp" fill={COLORS.ad} onClick={(data, i) => onBarClick(data, i, null, 'ad')} cursor="pointer"/>
                                                 <Bar dataKey="sales" name="販売費" stackId="exp" fill={COLORS.sales} onClick={(data, i) => onBarClick(data, i, null, 'sales')} cursor="pointer"/>
                                                 <Bar dataKey="labor" name="人件費" stackId="exp" fill={COLORS.labor} onClick={(data, i) => onBarClick(data, i, null, 'labor')} cursor="pointer"/>
@@ -830,10 +848,7 @@
                                                 <Bar dataKey="hq" name="本社費" stackId="exp" fill={COLORS.hq} onClick={(data, i) => onBarClick(data, i, null, 'hq')} cursor="pointer"/>
                                                 <Bar dataKey="other" name="その他" stackId="exp" fill={COLORS.other} onClick={(data, i) => onBarClick(data, i, null, 'other')} cursor="pointer"/>
 
-                                                {/* Revenue Line */}
                                                 <Line type="monotone" dataKey="revenue" name="売上 (A51)" stroke={COLORS.revenue} strokeWidth={3} dot={{r:4}} activeDot={{r:6}} />
-                                                
-                                                {/* Profit Lines */}
                                                 <Line type="monotone" dataKey="profit" name="営業利益 (AA5)" stroke={COLORS.profit} strokeWidth={2} strokeDasharray="5 5" />
                                             </ComposedChart>
                                         </ResponsiveContainer>
@@ -841,9 +856,13 @@
                                 </div>
                             )}
                             
-                            {/* ... (Other Tabs Students/Marketing/Settings same as previous) ... */}
                             {activeTab === 'students' && (
                                 <div className="space-y-8 animate-in fade-in">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                        <StatCard title="期間内増加" value={`${totals.newEnrollments + totals.transferIns + totals.returns}名`} subValue="入会+転入+復会" icon={Users} colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}, {label:'復会', value:totals.returns}]} />
+                                        <StatCard title="期間内減少" value={`${totals.withdrawals + totals.transfers + totals.graduates}名`} subValue="退会+転校+卒業" icon={Users} colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:totals.transfers}, {label:'卒業', value:totals.graduates}]} />
+                                        <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末':'月末'} icon={TrendingUp} colorClass="text-brand-blue" />
+                                    </div>
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
                                         <h3 className="text-lg font-bold text-gray-800 mb-6">生徒数増減詳細</h3>
                                         <ResponsiveContainer width="100%" height="100%">
@@ -859,6 +878,29 @@
                                                 <Bar dataKey="withdrawals_neg" name="退会" fill="#ef4444" stackId="stack" />
                                                 <Bar dataKey="graduates_neg" name="卒業" fill="#a855f7" stackId="stack" />
                                             </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'marketing' && (
+                                <div className="space-y-8 animate-in fade-in">
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6">集客ファネル推移 ({viewLabel})</h3>
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <ComposedChart data={displayData}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                <XAxis dataKey="name" interval={0} />
+                                                <YAxis yAxisId="left" orientation="left" />
+                                                <YAxis yAxisId="right" orientation="right" />
+                                                <Tooltip />
+                                                <Legend />
+                                                <Bar yAxisId="left" dataKey="flyers" name="門配数" fill="#94a3b8" />
+                                                <Bar yAxisId="left" dataKey="trialApp" name="体験申込" stackId="app" fill="#3b82f6" />
+                                                <Bar yAxisId="left" dataKey="eventApp" name="イベント申込" stackId="app" fill="#93c5fd" />
+                                                <Bar yAxisId="left" dataKey="trialExec" name="体験実施" stackId="exec" fill="#f97316" />
+                                                <Line yAxisId="right" type="monotone" dataKey="newEnrollments" name="入会数" stroke="#10b981" strokeWidth={3} />
+                                            </ComposedChart>
                                         </ResponsiveContainer>
                                     </div>
                                 </div>
@@ -879,14 +921,17 @@
         }
 
         // ==========================================
-        // 6. School Console
+        // 6. School Console (Unchanged)
         // ==========================================
         function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
+            // ... (Same logic as previous version) ...
             const [activeTab, setActiveTab] = useState('daily');
             const [selectedMonth, setSelectedMonth] = useState('4月');
             const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
             const [inputData, setInputData] = useState({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
             const [uploading, setUploading] = useState(false);
+            const [planData, setPlanData] = useState({});
+            const [isSavingPlan, setIsSavingPlan] = useState(false);
             const [uploadTargetYear, setUploadTargetYear] = useState(selectedYear); 
 
             const lastUploadInfo = useMemo(() => {
@@ -895,8 +940,78 @@
                 return update ? parseDate(update.updatedAt) : null;
             }, [campus, allData.financialUpdates, uploadTargetYear]);
 
-            // ... (Other School Logic omitted for brevity, keeping existing) ...
-            
+            useEffect(() => {
+                if (activeTab === 'plan' && campus) {
+                    const fetchPlan = async () => {
+                        try {
+                            const docRef = doc(db, "campus_plans", `${campus.id}_${selectedYear}`);
+                            const docSnap = await getDoc(docRef);
+                            setPlanData(docSnap.exists() ? docSnap.data().plans : createInitialPlanData());
+                        } catch (e) { console.error(e); }
+                    };
+                    fetchPlan();
+                }
+            }, [activeTab, campus, selectedYear]);
+
+            const createInitialPlanData = () => {
+                return MONTHS_LIST.reduce((acc, month) => {
+                    acc[month] = { enrollments: 0, trials: 0, touchTry: 0, flyers: 0, rate: 0 };
+                    return acc;
+                }, {});
+            };
+
+            useEffect(() => {
+                if (!campus) return;
+                const existing = allData.dailyReports.find(r => r.campusId === campus.id && r.date === reportDate);
+                if (existing) {
+                    setInputData({
+                        weather: existing.weather || 'sunny',
+                        flyers: existing.flyers || 0,
+                        touch: existing.touchTry || 0,
+                        trial: existing.trialLessons || 0
+                    });
+                } else {
+                    setInputData({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
+                }
+            }, [reportDate, allData.dailyReports, campus]);
+
+            const handleSaveReport = async () => {
+                if (!campus) return;
+                try {
+                    await setDoc(doc(db, "daily_reports", `${campus.id}_${reportDate}`), {
+                        campusId: campus.id, date: reportDate, weather: inputData.weather,
+                        flyers: Number(inputData.flyers), touchTry: Number(inputData.touch), trialLessons: Number(inputData.trial),
+                        updatedAt: serverTimestamp()
+                    });
+                    refreshData();
+                    showNotify("日報を保存しました");
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+
+            const handlePlanChange = (month, field, value) => {
+                setPlanData(prev => {
+                    const newData = { ...prev };
+                    newData[month] = { ...newData[month], [field]: Number(value) };
+                    if (field === 'enrollments' || field === 'trials') {
+                        const enr = field === 'enrollments' ? Number(value) : (newData[month].enrollments || 0);
+                        const tri = field === 'trials' ? Number(value) : (newData[month].trials || 0);
+                        newData[month].rate = tri > 0 ? ((enr / tri) * 100).toFixed(1) : 0;
+                    }
+                    return newData;
+                });
+            };
+
+            const handleSavePlan = async () => {
+                if (!campus) return;
+                setIsSavingPlan(true);
+                try {
+                    await setDoc(doc(db, "campus_plans", `${campus.id}_${selectedYear}`), { 
+                        campusId: campus.id, year: selectedYear, plans: planData, updatedAt: serverTimestamp() 
+                    });
+                    showNotify("年間計画を保存しました");
+                } catch (e) { showNotify("保存失敗: " + e.message, 'error'); } finally { setIsSavingPlan(false); }
+            };
+
             const handleCsvUpload = async (parsedData) => {
                 if (!campus) return;
                 setUploading(true);
@@ -905,7 +1020,6 @@
                     const q = query(collection(db, "financials"), where("campusId", "==", campus.id), where("fiscalYear", "==", uploadTargetYear));
                     const snapshot = await getDocs(q);
                     
-                    // Delete
                     const chunks = [];
                     for (let i = 0; i < snapshot.docs.length; i += batchSize) chunks.push(snapshot.docs.slice(i, i + batchSize));
                     for (const chunk of chunks) {
@@ -914,7 +1028,6 @@
                         await deleteBatch.commit();
                     }
 
-                    // Insert
                     const insertChunks = [];
                     for (let i = 0; i < parsedData.length; i += batchSize) insertChunks.push(parsedData.slice(i, i + batchSize));
                     for (const chunk of insertChunks) {
@@ -925,14 +1038,9 @@
                             const dateStr = `${tYear}-${('0'+item.month).slice(-2)}-01`;
                             const ref = doc(collection(db, "financials"));
                             insertBatch.set(ref, { 
-                                date: dateStr, 
-                                fiscalYear: uploadTargetYear, 
-                                amount: item.amount, 
-                                category: item.category, 
-                                subCategory: item.subCategory, 
-                                accountCode: item.accountCode, // Save Code for detailed breakdown
-                                campusId: campus.id, 
-                                createdAt: serverTimestamp() 
+                                date: dateStr, fiscalYear: uploadTargetYear, amount: item.amount, 
+                                category: item.category, subCategory: item.subCategory, accountCode: item.accountCode,
+                                campusId: campus.id, createdAt: serverTimestamp() 
                             });
                         });
                         await insertBatch.commit();
@@ -947,7 +1055,6 @@
                 } catch (e) { showNotify("エラー: " + e.message, 'error'); } finally { setUploading(false); }
             };
 
-            // ... (Render logic same as previous SchoolConsole) ...
             if (!campus) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-brand-blue"/></div>;
             const weatherMap = { sunny: {i:Sun,l:'晴',c:'text-orange-500'}, cloudy: {i:Cloud,l:'曇',c:'text-gray-500'}, rainy: {i:CloudRain,l:'雨',c:'text-blue-500'}, snowy: {i:Snowflake,l:'雪',c:'text-cyan-500'}, closed: {i:Ban,l:'休',c:'text-red-500'} };
 
@@ -959,7 +1066,7 @@
                             <h2 className="text-xl font-bold text-gray-800 truncate">{campus.name}</h2>
                         </div>
                         <nav className="flex-1 p-4 space-y-1">
-                            {[{id:'daily',l:'日報入力',i:Calendar}, {id:'finance',l:'収支取込',i:FileSpreadsheet}].map(t => (
+                            {[{id:'daily',l:'日報入力',i:Calendar}, {id:'plan',l:'計画策定',i:FileText}, {id:'finance',l:'収支取込',i:FileSpreadsheet}].map(t => (
                                 <button key={t.id} onClick={() => setActiveTab(t.id)} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === t.id ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/30' : 'text-gray-500 hover:bg-gray-50'}`}>
                                     <t.i className="w-5 h-5 mr-3" />{t.l}
                                 </button>
