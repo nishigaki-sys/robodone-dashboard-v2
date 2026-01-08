@@ -101,6 +101,7 @@
         const MONTHS_LIST = ['4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月'];
         const YEARS_LIST = [2022, 2023, 2024, 2025, 2026];
         
+        // Detailed Color Palette
         const COLORS = {
             revenue: '#1E51A2',
             profit: '#10B981',
@@ -342,9 +343,18 @@
                     profit: currentFin.revenue - currentFin.expenseTotal,
                     detailItems: currentFin.details,
 
+                    // Pass Previous Year Aggregations
                     prevRevenue: prevFin.revenue,
                     prevExpense: prevFin.expenseTotal,
                     prevProfit: prevFin.revenue - prevFin.expenseTotal,
+                    prevDetailItems: prevFin.details,
+                    prevAd: prevFin.ad,
+                    prevSales: prevFin.sales,
+                    prevLabor: prevFin.labor,
+                    prevFacility: prevFin.facility,
+                    prevAdmin: prevFin.admin,
+                    prevHq: prevFin.hq,
+                    prevOther: prevFin.other,
                     
                     daily: dailyData,
                     weekly: weeklyData,
@@ -720,13 +730,13 @@
                 if (viewMode !== 'monthly' || !monthDataForPL) return [];
                 const data = [
                     { id: 'revenue', name: '売上', value: monthDataForPL.revenue, prev: monthDataForPL.prevRevenue, fill: COLORS.revenue },
-                    { id: 'ad', name: '広告宣伝費', value: monthDataForPL.ad, prev: monthDataForPL.prevDetailItems?.ad?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.ad },
-                    { id: 'sales', name: '販売費', value: monthDataForPL.sales, prev: monthDataForPL.prevDetailItems?.sales?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.sales },
-                    { id: 'labor', name: '人件費', value: monthDataForPL.labor, prev: monthDataForPL.prevDetailItems?.labor?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.labor },
-                    { id: 'facility', name: '設備費', value: monthDataForPL.facility, prev: monthDataForPL.prevDetailItems?.facility?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.facility },
-                    { id: 'admin', name: '一般管理費', value: monthDataForPL.admin, prev: monthDataForPL.prevDetailItems?.admin?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.admin },
-                    { id: 'hq', name: '本社費', value: monthDataForPL.hq, prev: monthDataForPL.prevDetailItems?.hq?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.hq },
-                    { id: 'other', name: 'その他', value: monthDataForPL.other, prev: monthDataForPL.prevDetailItems?.other?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.other },
+                    { id: 'ad', name: '広告宣伝費', value: monthDataForPL.ad, prev: monthDataForPL.prevAd, fill: COLORS.ad },
+                    { id: 'sales', name: '販売費', value: monthDataForPL.sales, prev: monthDataForPL.prevSales, fill: COLORS.sales },
+                    { id: 'labor', name: '人件費', value: monthDataForPL.labor, prev: monthDataForPL.prevLabor, fill: COLORS.labor },
+                    { id: 'facility', name: '設備費', value: monthDataForPL.facility, prev: monthDataForPL.prevFacility, fill: COLORS.facility },
+                    { id: 'admin', name: '一般管理費', value: monthDataForPL.admin, prev: monthDataForPL.prevAdmin, fill: COLORS.admin },
+                    { id: 'hq', name: '本社費', value: monthDataForPL.hq, prev: monthDataForPL.prevHq, fill: COLORS.hq },
+                    { id: 'other', name: 'その他', value: monthDataForPL.other, prev: monthDataForPL.prevOther, fill: COLORS.other },
                     { id: 'profit', name: '営業利益', value: monthDataForPL.profit, prev: monthDataForPL.prevProfit, fill: COLORS.profit },
                 ];
                 return data;
