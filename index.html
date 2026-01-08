@@ -101,7 +101,6 @@
         const MONTHS_LIST = ['4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月'];
         const YEARS_LIST = [2022, 2023, 2024, 2025, 2026];
         
-        // Detailed Color Palette
         const COLORS = {
             revenue: '#1E51A2',
             profit: '#10B981',
@@ -223,6 +222,7 @@
             const prevWithdraw = countBefore(statusChanges, "退会");
             const prevGrad = countBefore(statusChanges, "卒業");
             const prevTransferOut = countBefore(statusChanges, "転校");
+            // 休会と復会は計算に含めない (プラスマイナス0)
             baseStudentCount = (prevEnroll + prevTransferIn) - (prevWithdraw + prevGrad + prevTransferOut);
 
             let currentStudents = baseStudentCount;
@@ -230,26 +230,21 @@
             const monthlyStats = MONTHS_LIST.map((monthName, mIdx) => {
                 const { weeks, daysInMonth, year: tYear, month: tMonth } = getWeeksStruct(targetYear, mIdx);
                 
-                // --- CURRENT YEAR DATA ---
                 const mFinancials = financials.filter(fin => {
                     if (!isTargetCampus(fin)) return false;
                     const d = parseDate(fin.date);
                     return d && d.getFullYear() === tYear && d.getMonth() === tMonth;
                 });
 
-                // --- PREVIOUS YEAR DATA (for comparison) ---
-                const tYearPrev = tYear - 1;
                 const mFinancialsPrev = financials.filter(fin => {
                     if (!isTargetCampus(fin)) return false;
                     const d = parseDate(fin.date);
-                    return d && d.getFullYear() === tYearPrev && d.getMonth() === tMonth;
+                    return d && d.getFullYear() === (tYear - 1) && d.getMonth() === tMonth;
                 });
 
-                // Helper to aggregate financials
                 const aggFinancials = (fins) => {
                     const agg = { revenue: 0, ad: 0, sales: 0, labor: 0, facility: 0, admin: 0, hq: 0, other: 0, expenseTotal: 0 };
                     const details = {};
-                    
                     fins.forEach(f => {
                         const cat = determineDetailedCategory(f.accountCode);
                         if (cat === 'revenue') {
@@ -258,17 +253,11 @@
                             agg[cat] += f.amount;
                             agg.expenseTotal += f.amount;
                         }
-                        
-                        // Detailed Breakdown
                         if (!details[cat]) details[cat] = [];
                         const existing = details[cat].find(i => i.name === f.subCategory);
-                        if (existing) {
-                            existing.value += f.amount;
-                        } else {
-                            details[cat].push({ name: f.subCategory, value: f.amount, code: f.accountCode });
-                        }
+                        if (existing) { existing.value += f.amount; } 
+                        else { details[cat].push({ name: f.subCategory, value: f.amount, code: f.accountCode }); }
                     });
-                    
                     Object.keys(details).forEach(k => details[k].sort((a,b) => b.value - a.value));
                     return { ...agg, details };
                 };
@@ -276,7 +265,6 @@
                 const currentFin = aggFinancials(mFinancials);
                 const prevFin = aggFinancials(mFinancialsPrev);
 
-                // ... (Daily/Weekly logic for current year kept for charts) ...
                 const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
                     const day = i + 1;
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
@@ -310,7 +298,6 @@
                         withdrawals: dWithdraw, withdrawals_neg: -dWithdraw,
                         graduates_neg: -dGrad, transfers_neg: -dTransferOut, recesses_neg: -dRecess,
                         flyers: dFlyers, trialApp: dTrialApp, eventApp: dEventApp, trialExec: dTrialExec, eventExec: dEventExec,
-                        // Daily financials are approximate if we only have monthly data, so we don't distribute here for PL view
                     };
                 });
 
@@ -327,7 +314,9 @@
                 });
 
                 const sumDaily = (key) => dailyData.reduce((acc, d) => acc + (d[key] || 0), 0);
-                const netChange = (sumDaily('newEnrollments') + sumDaily('transferIns') + sumDaily('returns')) 
+                
+                // Update Logic: Remove 'returns' from netChange (plus/minus 0 for recess/return)
+                const netChange = (sumDaily('newEnrollments') + sumDaily('transferIns')) 
                                 - (sumDaily('withdrawals') + -sumDaily('graduates_neg') + -sumDaily('transfers_neg'));
                 currentStudents += netChange;
 
@@ -349,16 +338,13 @@
                     eventApp: sumDaily('eventApp'),
                     eventExec: sumDaily('eventExec'),
 
-                    // Financials (Current Year)
                     ...currentFin,
                     profit: currentFin.revenue - currentFin.expenseTotal,
                     detailItems: currentFin.details,
 
-                    // Financials (Previous Year)
                     prevRevenue: prevFin.revenue,
                     prevExpense: prevFin.expenseTotal,
                     prevProfit: prevFin.revenue - prevFin.expenseTotal,
-                    prevDetailItems: prevFin.details, // for comparison if needed
                     
                     daily: dailyData,
                     weekly: weeklyData,
@@ -702,7 +688,6 @@
             }, [fullDashboardData, viewMode, selectedMonth]);
 
             const monthDataForPL = useMemo(() => {
-                // For PL monthly view, we want specific month aggregate
                 return fullDashboardData.find(m => m.name === selectedMonth);
             }, [fullDashboardData, selectedMonth]);
 
@@ -720,7 +705,6 @@
                     flyers: acc.flyers + (curr.flyers || 0),
                     trialApp: acc.trialApp + (curr.trialApp || 0),
                     trialExec: acc.trialExec + (curr.trialExec || 0),
-                    // Detail Aggregations
                     ad: acc.ad + (curr.ad || 0),
                     sales: acc.sales + (curr.sales || 0),
                     labor: acc.labor + (curr.labor || 0),
@@ -734,7 +718,6 @@
             // For Monthly Summary View (Category Breakdown)
             const monthlySummaryData = useMemo(() => {
                 if (viewMode !== 'monthly' || !monthDataForPL) return [];
-                // PL Table Data Generation
                 const data = [
                     { id: 'revenue', name: '売上', value: monthDataForPL.revenue, prev: monthDataForPL.prevRevenue, fill: COLORS.revenue },
                     { id: 'ad', name: '広告宣伝費', value: monthDataForPL.ad, prev: monthDataForPL.prevDetailItems?.ad?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.ad },
@@ -970,10 +953,11 @@
                                                     <ReferenceLine y={0} stroke="#000" />
                                                     <Bar dataKey="newEnrollments" name="入会" fill="#10B981" stackId="stack" />
                                                     <Bar dataKey="transferIns" name="転入" fill="#06B6D4" stackId="stack" />
-                                                    <Bar dataKey="returns" name="復会" fill="#34D399" stackId="stack" />
+                                                    {/* returns (復会) removed from chart */}
                                                     <Bar dataKey="withdrawals_neg" name="退会" fill="#EF4444" stackId="stack" />
                                                     <Bar dataKey="graduates_neg" name="卒業" fill="#A855F7" stackId="stack" />
                                                     <Bar dataKey="transfers_neg" name="転校" fill="#F97316" stackId="stack" />
+                                                    {/* recesses (休会) removed from chart */}
                                                 </BarChart>
                                             </ResponsiveContainer>
                                         </div>
@@ -1142,7 +1126,7 @@
                             {activeTab === 'students' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                        <StatCard title="期間内増加" value={`${totals.newEnrollments + totals.transferIns + totals.returns}名`} subValue="入会+転入+復会" icon={Users} colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}, {label:'復会', value:totals.returns}]} />
+                                        <StatCard title="期間内増加" value={`${totals.newEnrollments + totals.transferIns}名`} subValue="入会+転入" icon={Users} colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}]} />
                                         <StatCard title="期間内減少" value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} subValue="退会+転校+卒業" icon={Users} colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} />
                                         <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末':'月末'} icon={TrendingUp} colorClass="text-brand-blue" />
                                     </div>
@@ -1157,11 +1141,12 @@
                                                 <Legend />
                                                 <ReferenceLine y={0} stroke="#000" />
                                                 <Bar dataKey="newEnrollments" name="入会" fill="#10b981" stackId="stack" />
-                                                <Bar dataKey="returns" name="復会" fill="#34d399" stackId="stack" />
-                                                <Bar dataKey="withdrawals_neg" name="退会" fill="#ef4444" stackId="stack" />
-                                                <Bar dataKey="graduates_neg" name="卒業" fill="#a855f7" stackId="stack" />
-                                                <Bar dataKey="transfers_neg" name="転校" fill="#f97316" stackId="stack" />
-                                                <Bar dataKey="recesses_neg" name="休会" fill="#f59e0b" stackId="stack" />
+                                                <Bar dataKey="transferIns" name="転入" fill="#06B6D4" stackId="stack" />
+                                                {/* returns removed */}
+                                                <Bar dataKey="withdrawals_neg" name="退会" fill="#EF4444" stackId="stack" />
+                                                <Bar dataKey="graduates_neg" name="卒業" fill="#A855F7" stackId="stack" />
+                                                <Bar dataKey="transfers_neg" name="転校" fill="#F97316" stackId="stack" />
+                                                {/* recesses_neg removed */}
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
