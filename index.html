@@ -65,7 +65,7 @@
         import { 
             LayoutDashboard, Users, TrendingUp, Calendar, DollarSign, Activity, Loader2, 
             Settings, Plus, Trash2, School, FileText, Save, Sun, Cloud, CloudRain, Snowflake, Ban, PenTool, 
-            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown, RefreshCw, Database, PieChart as PieIcon, Clock, Search, MapPin, Edit2
+            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown, RefreshCw, Database, PieChart as PieIcon, Clock, Search, MapPin, Edit2, TrendingDown
         } from "lucide-react";
         import { initializeApp } from "firebase/app";
         import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, updateDoc, getDocs, query, orderBy, where, serverTimestamp, writeBatch } from "firebase/firestore";
@@ -230,12 +230,53 @@
             const monthlyStats = MONTHS_LIST.map((monthName, mIdx) => {
                 const { weeks, daysInMonth, year: tYear, month: tMonth } = getWeeksStruct(targetYear, mIdx);
                 
+                // --- CURRENT YEAR DATA ---
                 const mFinancials = financials.filter(fin => {
                     if (!isTargetCampus(fin)) return false;
                     const d = parseDate(fin.date);
                     return d && d.getFullYear() === tYear && d.getMonth() === tMonth;
                 });
 
+                // --- PREVIOUS YEAR DATA (for comparison) ---
+                const tYearPrev = tYear - 1;
+                const mFinancialsPrev = financials.filter(fin => {
+                    if (!isTargetCampus(fin)) return false;
+                    const d = parseDate(fin.date);
+                    return d && d.getFullYear() === tYearPrev && d.getMonth() === tMonth;
+                });
+
+                // Helper to aggregate financials
+                const aggFinancials = (fins) => {
+                    const agg = { revenue: 0, ad: 0, sales: 0, labor: 0, facility: 0, admin: 0, hq: 0, other: 0, expenseTotal: 0 };
+                    const details = {};
+                    
+                    fins.forEach(f => {
+                        const cat = determineDetailedCategory(f.accountCode);
+                        if (cat === 'revenue') {
+                            agg.revenue += f.amount;
+                        } else {
+                            agg[cat] += f.amount;
+                            agg.expenseTotal += f.amount;
+                        }
+                        
+                        // Detailed Breakdown
+                        if (!details[cat]) details[cat] = [];
+                        const existing = details[cat].find(i => i.name === f.subCategory);
+                        if (existing) {
+                            existing.value += f.amount;
+                        } else {
+                            details[cat].push({ name: f.subCategory, value: f.amount, code: f.accountCode });
+                        }
+                    });
+                    
+                    Object.keys(details).forEach(k => details[k].sort((a,b) => b.value - a.value));
+                    return { ...agg, details };
+                };
+
+                const currentFin = aggFinancials(mFinancials);
+                const prevFin = aggFinancials(mFinancialsPrev);
+
+                // ... (Daily/Weekly logic for current year kept for charts) ...
                 const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
                     const day = i + 1;
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
@@ -263,65 +304,25 @@
                     const dTrialExec = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'trialDate');
                     const dEventExec = filterDay(trialApps.filter(a => a.type?.includes('イベント')), null, 'trialDate');
 
-                    const dFins = mFinancials.filter(f => f.date === dateStr);
-                    const finAgg = { revenue: 0, ad: 0, sales: 0, labor: 0, facility: 0, admin: 0, hq: 0, other: 0, expenseTotal: 0 };
-                    
-                    dFins.forEach(f => {
-                        const cat = determineDetailedCategory(f.accountCode);
-                        if (cat === 'revenue') {
-                            finAgg.revenue += f.amount;
-                        } else {
-                            finAgg[cat] += f.amount;
-                            finAgg.expenseTotal += f.amount;
-                        }
-                    });
-
                     return {
                         name: `${day}日`, date: dateStr,
                         newEnrollments: dEnroll, transferIns: dTransferIn, returns: dReturn,
                         withdrawals: dWithdraw, withdrawals_neg: -dWithdraw,
                         graduates_neg: -dGrad, transfers_neg: -dTransferOut, recesses_neg: -dRecess,
                         flyers: dFlyers, trialApp: dTrialApp, eventApp: dEventApp, trialExec: dTrialExec, eventExec: dEventExec,
-                        ...finAgg,
-                        profit: finAgg.revenue - finAgg.expenseTotal
+                        // Daily financials are approximate if we only have monthly data, so we don't distribute here for PL view
                     };
                 });
 
                 const weeklyData = weeks.map(week => {
                     const daysInWeek = dailyData.slice(week.startDay - 1, week.endDay);
                     const sum = (key) => daysInWeek.reduce((acc, d) => acc + (d[key] || 0), 0);
-                    
                     return {
-                        name: week.name,
-                        label: week.label,
-                        // Students & Marketing
-                        newEnrollments: sum('newEnrollments'),
-                        transferIns: sum('transferIns'),
-                        returns: sum('returns'),
-                        withdrawals: sum('withdrawals'),
-                        withdrawals_neg: sum('withdrawals_neg'),
-                        graduates_neg: sum('graduates_neg'),
-                        transfers_neg: sum('transfers_neg'),
-                        recesses_neg: sum('recesses_neg'),
-                        flyers: sum('flyers'),
-                        trialApp: sum('trialApp'),
-                        eventApp: sum('eventApp'),
-                        trialExec: sum('trialExec'),
-                        eventExec: sum('eventExec'),
-                        
-                        // Financials
-                        revenue: sum('revenue'),
-                        expense: sum('expenseTotal'),
-                        profit: sum('profit'),
-                        
-                        // Detailed Expenses
-                        ad: sum('ad'),
-                        sales: sum('sales'),
-                        labor: sum('labor'),
-                        facility: sum('facility'),
-                        admin: sum('admin'),
-                        hq: sum('hq'),
-                        other: sum('other')
+                        name: week.name, label: week.label,
+                        newEnrollments: sum('newEnrollments'), transferIns: sum('transferIns'), returns: sum('returns'),
+                        withdrawals: sum('withdrawals'), withdrawals_neg: sum('withdrawals_neg'), graduates_neg: sum('graduates_neg'),
+                        transfers_neg: sum('transfers_neg'), recesses_neg: sum('recesses_neg'), flyers: sum('flyers'),
+                        trialApp: sum('trialApp'), eventApp: sum('eventApp'), trialExec: sum('trialExec'), eventExec: sum('eventExec')
                     };
                 });
 
@@ -329,22 +330,6 @@
                 const netChange = (sumDaily('newEnrollments') + sumDaily('transferIns') + sumDaily('returns')) 
                                 - (sumDaily('withdrawals') + -sumDaily('graduates_neg') + -sumDaily('transfers_neg'));
                 currentStudents += netChange;
-
-                const detailItems = {};
-                mFinancials.forEach(f => {
-                    const cat = determineDetailedCategory(f.accountCode);
-                    if (!detailItems[cat]) detailItems[cat] = [];
-                    const existing = detailItems[cat].find(i => i.name === f.subCategory);
-                    if (existing) {
-                        existing.value += f.amount;
-                    } else {
-                        detailItems[cat].push({ name: f.subCategory, value: f.amount, code: f.accountCode });
-                    }
-                });
-                
-                Object.keys(detailItems).forEach(k => {
-                    detailItems[k].sort((a,b) => b.value - a.value);
-                });
 
                 return {
                     name: monthName,
@@ -357,24 +342,26 @@
                     transfers_neg: sumDaily('transfers_neg'),
                     graduates_neg: sumDaily('graduates_neg'),
                     recesses_neg: sumDaily('recesses_neg'),
+                    
                     flyers: sumDaily('flyers'),
                     trialApp: sumDaily('trialApp'),
                     trialExec: sumDaily('trialExec'),
                     eventApp: sumDaily('eventApp'),
                     eventExec: sumDaily('eventExec'),
-                    revenue: sumDaily('revenue'),
-                    ad: sumDaily('ad'),
-                    sales: sumDaily('sales'),
-                    labor: sumDaily('labor'),
-                    facility: sumDaily('facility'),
-                    admin: sumDaily('admin'),
-                    hq: sumDaily('hq'),
-                    other: sumDaily('other'),
-                    expense: sumDaily('expenseTotal'),
-                    profit: sumDaily('profit'), 
+
+                    // Financials (Current Year)
+                    ...currentFin,
+                    profit: currentFin.revenue - currentFin.expenseTotal,
+                    detailItems: currentFin.details,
+
+                    // Financials (Previous Year)
+                    prevRevenue: prevFin.revenue,
+                    prevExpense: prevFin.expenseTotal,
+                    prevProfit: prevFin.revenue - prevFin.expenseTotal,
+                    prevDetailItems: prevFin.details, // for comparison if needed
+                    
                     daily: dailyData,
                     weekly: weeklyData,
-                    detailItems
                 };
             });
 
@@ -690,6 +677,7 @@
             const [modalData, setModalData] = useState([]);
             const [modalTitle, setModalTitle] = useState("");
             const [modalColor, setModalColor] = useState("");
+            const [selectedPLItem, setSelectedPLItem] = useState(null);
 
             // Campus Editing State
             const [editModalOpen, setEditModalOpen] = useState(false);
@@ -712,6 +700,11 @@
                 if (viewMode === 'weekly') return targetMonthData ? targetMonthData.weekly : [];
                 return targetMonthData ? targetMonthData.daily : [];
             }, [fullDashboardData, viewMode, selectedMonth]);
+
+            const monthDataForPL = useMemo(() => {
+                // For PL monthly view, we want specific month aggregate
+                return fullDashboardData.find(m => m.name === selectedMonth);
+            }, [fullDashboardData, selectedMonth]);
 
             const totals = useMemo(() => {
                 return displayData.reduce((acc, curr) => ({
@@ -740,17 +733,21 @@
 
             // For Monthly Summary View (Category Breakdown)
             const monthlySummaryData = useMemo(() => {
-                if (viewMode !== 'monthly') return [];
-                // Create category based data from totals
-                return [
-                    { name: '売上', value: totals.revenue, fill: COLORS.revenue },
-                    { name: '人件費', value: totals.labor, fill: COLORS.labor },
-                    { name: '設備費', value: totals.facility, fill: COLORS.facility },
-                    { name: '販売費', value: totals.sales + totals.ad, fill: COLORS.sales }, // Combine Sales & Ad
-                    { name: '管理・本社', value: totals.admin + totals.hq, fill: COLORS.admin },
-                    { name: '営業利益', value: totals.profit, fill: COLORS.profit },
+                if (viewMode !== 'monthly' || !monthDataForPL) return [];
+                // PL Table Data Generation
+                const data = [
+                    { id: 'revenue', name: '売上', value: monthDataForPL.revenue, prev: monthDataForPL.prevRevenue, fill: COLORS.revenue },
+                    { id: 'ad', name: '広告宣伝費', value: monthDataForPL.ad, prev: monthDataForPL.prevDetailItems?.ad?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.ad },
+                    { id: 'sales', name: '販売費', value: monthDataForPL.sales, prev: monthDataForPL.prevDetailItems?.sales?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.sales },
+                    { id: 'labor', name: '人件費', value: monthDataForPL.labor, prev: monthDataForPL.prevDetailItems?.labor?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.labor },
+                    { id: 'facility', name: '設備費', value: monthDataForPL.facility, prev: monthDataForPL.prevDetailItems?.facility?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.facility },
+                    { id: 'admin', name: '一般管理費', value: monthDataForPL.admin, prev: monthDataForPL.prevDetailItems?.admin?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.admin },
+                    { id: 'hq', name: '本社費', value: monthDataForPL.hq, prev: monthDataForPL.prevDetailItems?.hq?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.hq },
+                    { id: 'other', name: 'その他', value: monthDataForPL.other, prev: monthDataForPL.prevDetailItems?.other?.reduce((s,i)=>s+i.value,0)||0, fill: COLORS.other },
+                    { id: 'profit', name: '営業利益', value: monthDataForPL.profit, prev: monthDataForPL.prevProfit, fill: COLORS.profit },
                 ];
-            }, [totals, viewMode]);
+                return data;
+            }, [monthDataForPL, viewMode]);
 
             const currentTotalStudents = useMemo(() => {
                 if (viewMode === 'annual') return fullDashboardData[fullDashboardData.length - 1]?.students || 0;
@@ -815,7 +812,6 @@
 
             // Custom Tick for Weekly XAxis
             const WeeklyAxisTick = ({ x, y, payload }) => {
-                // Find matching data to get the date range label
                 const item = displayData.find(d => d.name === payload.value);
                 return (
                     <g transform={`translate(${x},${y})`}>
@@ -829,6 +825,13 @@
 
             const viewLabel = { 'annual': '年度', 'monthly': '月度', 'weekly': '週次' }[viewMode];
             const availableViewModes = activeTab === 'students' ? ['annual', 'monthly', 'weekly'] : ['annual', 'monthly'];
+
+            // Detailed PL row selection
+            const handlePLRowClick = (item) => {
+                if (!monthDataForPL) return;
+                if (item.id === 'revenue' || item.id === 'profit') return; // No details for these yet
+                setSelectedPLItem(item);
+            };
 
             return (
                 <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
@@ -981,39 +984,157 @@
                             {/* PL (Detail) View */}
                             {activeTab === 'pl' && (
                                 <div className="space-y-8 animate-in fade-in">
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                        <StatCard title="売上" value={formatYen(totals.revenue)} subValue={viewLabel} icon={DollarSign} colorClass="text-brand-blue" />
-                                        <StatCard title="費用合計" value={formatYen(totals.expense)} subValue={viewLabel} icon={ArrowRight} colorClass="text-rose-500" />
-                                        <StatCard title="営業利益" value={formatYen(totals.profit)} subValue={viewLabel} icon={Activity} colorClass="text-emerald-500" />
-                                        <StatCard title="利益率" value={`${totals.revenue ? ((totals.profit/totals.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" icon={TrendingUp} colorClass="text-brand-orange" />
-                                    </div>
-                                    
-                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
-                                        <div className="flex justify-between items-center mb-6">
-                                            <h3 className="text-lg font-bold text-gray-800 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 詳細収支推移 ({viewLabel})</h3>
-                                            <div className="text-xs text-gray-400">※各棒グラフをクリックすると詳細内訳が表示されます</div>
-                                        </div>
-                                        <ResponsiveContainer width="100%" height="90%">
-                                            <ComposedChart data={displayData} stackOffset="sign">
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                <XAxis dataKey="name" interval={0} />
-                                                <YAxis />
-                                                <Tooltip formatter={(value)=>formatYen(value)} />
-                                                <Legend />
-                                                
-                                                <Bar dataKey="ad" name="広告宣伝費" stackId="exp" fill={COLORS.ad} onClick={(data, i) => onBarClick(data, i, null, 'ad')} cursor="pointer"/>
-                                                <Bar dataKey="sales" name="販売費" stackId="exp" fill={COLORS.sales} onClick={(data, i) => onBarClick(data, i, null, 'sales')} cursor="pointer"/>
-                                                <Bar dataKey="labor" name="人件費" stackId="exp" fill={COLORS.labor} onClick={(data, i) => onBarClick(data, i, null, 'labor')} cursor="pointer"/>
-                                                <Bar dataKey="facility" name="設備費" stackId="exp" fill={COLORS.facility} onClick={(data, i) => onBarClick(data, i, null, 'facility')} cursor="pointer"/>
-                                                <Bar dataKey="admin" name="一般管理費" stackId="exp" fill={COLORS.admin} onClick={(data, i) => onBarClick(data, i, null, 'admin')} cursor="pointer"/>
-                                                <Bar dataKey="hq" name="本社費" stackId="exp" fill={COLORS.hq} onClick={(data, i) => onBarClick(data, i, null, 'hq')} cursor="pointer"/>
-                                                <Bar dataKey="other" name="その他" stackId="exp" fill={COLORS.other} onClick={(data, i) => onBarClick(data, i, null, 'other')} cursor="pointer"/>
+                                    {/* Monthly PL Breakdown Table View */}
+                                    {viewMode === 'monthly' ? (
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
+                                            {/* Left: Major Category Table */}
+                                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                                <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center">
+                                                    <DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> {selectedMonth} 収支内訳
+                                                </h3>
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-sm">
+                                                        <thead className="bg-gray-50 text-gray-500 font-medium">
+                                                            <tr>
+                                                                <th className="px-4 py-2 text-left">科目（大分類）</th>
+                                                                <th className="px-4 py-2 text-right">実績</th>
+                                                                <th className="px-4 py-2 text-right">売上比</th>
+                                                                <th className="px-4 py-2 text-right">前年同月</th>
+                                                                <th className="px-4 py-2 text-right">前年比</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-100">
+                                                            {monthlySummaryData.map((item, idx) => {
+                                                                const isProfit = item.id === 'profit';
+                                                                const isRevenue = item.id === 'revenue';
+                                                                const ratio = monthlySummaryData[0].value > 0 ? (item.value / monthlySummaryData[0].value * 100).toFixed(1) : '-';
+                                                                const yoy = item.prev > 0 ? ((item.value - item.prev) / item.prev * 100).toFixed(1) : '-';
+                                                                const yoyColor = yoy > 0 ? (isProfit || isRevenue ? 'text-emerald-600' : 'text-rose-600') : (isProfit || isRevenue ? 'text-rose-600' : 'text-emerald-600');
+                                                                
+                                                                return (
+                                                                    <tr key={item.id} onClick={() => handlePLRowClick(item)} className={`hover:bg-blue-50 cursor-pointer transition-colors ${selectedPLItem?.id === item.id ? 'bg-blue-50 border-l-4 border-l-brand-blue' : ''}`}>
+                                                                        <td className="px-4 py-3 font-bold text-gray-700 flex items-center">
+                                                                            <div className="w-3 h-3 rounded-full mr-2" style={{backgroundColor: item.fill}}></div>
+                                                                            {item.name}
+                                                                        </td>
+                                                                        <td className="px-4 py-3 text-right font-bold">{formatYen(item.value)}</td>
+                                                                        <td className="px-4 py-3 text-right text-gray-500">{ratio}%</td>
+                                                                        <td className="px-4 py-3 text-right text-gray-400">{formatYen(item.prev)}</td>
+                                                                        <td className={`px-4 py-3 text-right font-bold ${yoyColor}`}>{yoy !== '-' ? (yoy > 0 ? '+' : '') + yoy + '%' : '-'}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
 
-                                                <Line type="monotone" dataKey="revenue" name="売上 (A51)" stroke={COLORS.revenue} strokeWidth={3} dot={{r:4}} activeDot={{r:6}} />
-                                                <Line type="monotone" dataKey="profit" name="営業利益 (AA5)" stroke={COLORS.profit} strokeWidth={2} strokeDasharray="5 5" />
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    </div>
+                                            {/* Right: Detail Breakdown (Drilldown) */}
+                                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
+                                                {selectedPLItem ? (
+                                                    <>
+                                                        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                            <div className="w-4 h-4 rounded-full mr-2" style={{backgroundColor: selectedPLItem.fill}}></div>
+                                                            {selectedPLItem.name} 詳細内訳
+                                                        </h3>
+                                                        <div className="flex-1 overflow-y-auto pr-2">
+                                                            <div className="space-y-3">
+                                                                {monthDataForPL.detailItems[selectedPLItem.id] && monthDataForPL.detailItems[selectedPLItem.id].length > 0 ? (
+                                                                    monthDataForPL.detailItems[selectedPLItem.id].map((detail, idx) => {
+                                                                        const share = (detail.value / selectedPLItem.value * 100).toFixed(1);
+                                                                        // Mock previous year details if available
+                                                                        const prevDetail = monthDataForPL.prevDetailItems?.[selectedPLItem.id]?.find(p => p.name === detail.name);
+                                                                        const yoy = prevDetail && prevDetail.value > 0 ? ((detail.value - prevDetail.value) / prevDetail.value * 100).toFixed(1) : '-';
+                                                                        
+                                                                        return (
+                                                                            <div key={idx} className="p-3 border border-gray-100 rounded-lg hover:shadow-sm transition-shadow">
+                                                                                <div className="flex justify-between items-center mb-1">
+                                                                                    <span className="font-bold text-gray-700">{detail.name}</span>
+                                                                                    <span className="font-bold text-gray-900">{formatYen(detail.value)}</span>
+                                                                                </div>
+                                                                                <div className="flex justify-between text-xs text-gray-500">
+                                                                                    <span className="font-mono bg-gray-100 px-1 rounded">{detail.code}</span>
+                                                                                    <div className="flex gap-3">
+                                                                                        <span>構成比: {share}%</span>
+                                                                                        <span>前年比: {yoy !== '-' ? (yoy > 0 ? '+' : '') + yoy + '%' : '-'}</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5">
+                                                                                    <div className="h-1.5 rounded-full" style={{width: `${share}%`, backgroundColor: selectedPLItem.fill}}></div>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })
+                                                                ) : (
+                                                                    <div className="text-center text-gray-400 py-10">詳細データがありません</div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="mt-6 h-64 border-t border-gray-100 pt-4">
+                                                            <h4 className="text-xs font-bold text-gray-400 mb-2 text-center">構成比グラフ</h4>
+                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                <PieChart>
+                                                                    <Pie 
+                                                                        data={monthDataForPL.detailItems[selectedPLItem.id]} 
+                                                                        cx="50%" cy="50%" 
+                                                                        innerRadius={60} 
+                                                                        outerRadius={80} 
+                                                                        paddingAngle={2} 
+                                                                        dataKey="value"
+                                                                    >
+                                                                        {monthDataForPL.detailItems[selectedPLItem.id]?.map((entry, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
+                                                                    </Pie>
+                                                                    <Tooltip formatter={(value)=>formatYen(value)} />
+                                                                </PieChart>
+                                                            </ResponsiveContainer>
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <div className="h-full flex flex-col items-center justify-center text-gray-400">
+                                                        <DollarSign className="w-12 h-12 mb-4 opacity-20"/>
+                                                        <p>左側の表から項目を選択すると<br/>詳細内訳が表示されます</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        // Annual View (Existing Charts)
+                                        <>
+                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                                <StatCard title="売上" value={formatYen(totals.revenue)} subValue={viewLabel} icon={DollarSign} colorClass="text-brand-blue" />
+                                                <StatCard title="費用合計" value={formatYen(totals.expense)} subValue={viewLabel} icon={ArrowRight} colorClass="text-rose-500" />
+                                                <StatCard title="営業利益" value={formatYen(totals.profit)} subValue={viewLabel} icon={Activity} colorClass="text-emerald-500" />
+                                                <StatCard title="利益率" value={`${totals.revenue ? ((totals.profit/totals.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" icon={TrendingUp} colorClass="text-brand-orange" />
+                                            </div>
+                                            
+                                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
+                                                <div className="flex justify-between items-center mb-6">
+                                                    <h3 className="text-lg font-bold text-gray-800 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 詳細収支推移 ({viewLabel})</h3>
+                                                    <div className="text-xs text-gray-400">※各棒グラフをクリックすると詳細内訳が表示されます</div>
+                                                </div>
+                                                <ResponsiveContainer width="100%" height="90%">
+                                                    <ComposedChart data={displayData} stackOffset="sign">
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                        <XAxis dataKey="name" interval={0} />
+                                                        <YAxis />
+                                                        <Tooltip formatter={(value)=>formatYen(value)} />
+                                                        <Legend />
+                                                        
+                                                        <Bar dataKey="ad" name="広告宣伝費" stackId="exp" fill={COLORS.ad} onClick={(data, i) => onBarClick(data, i, null, 'ad')} cursor="pointer"/>
+                                                        <Bar dataKey="sales" name="販売費" stackId="exp" fill={COLORS.sales} onClick={(data, i) => onBarClick(data, i, null, 'sales')} cursor="pointer"/>
+                                                        <Bar dataKey="labor" name="人件費" stackId="exp" fill={COLORS.labor} onClick={(data, i) => onBarClick(data, i, null, 'labor')} cursor="pointer"/>
+                                                        <Bar dataKey="facility" name="設備費" stackId="exp" fill={COLORS.facility} onClick={(data, i) => onBarClick(data, i, null, 'facility')} cursor="pointer"/>
+                                                        <Bar dataKey="admin" name="一般管理費" stackId="exp" fill={COLORS.admin} onClick={(data, i) => onBarClick(data, i, null, 'admin')} cursor="pointer"/>
+                                                        <Bar dataKey="hq" name="本社費" stackId="exp" fill={COLORS.hq} onClick={(data, i) => onBarClick(data, i, null, 'hq')} cursor="pointer"/>
+                                                        <Bar dataKey="other" name="その他" stackId="exp" fill={COLORS.other} onClick={(data, i) => onBarClick(data, i, null, 'other')} cursor="pointer"/>
+
+                                                        <Line type="monotone" dataKey="revenue" name="売上 (A51)" stroke={COLORS.revenue} strokeWidth={3} dot={{r:4}} activeDot={{r:6}} />
+                                                        <Line type="monotone" dataKey="profit" name="営業利益 (AA5)" stroke={COLORS.profit} strokeWidth={2} strokeDasharray="5 5" />
+                                                    </ComposedChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             )}
                             
@@ -1072,38 +1193,9 @@
                             
                             {activeTab === 'settings' && (
                                 <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
-                                    <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Plus className="w-5 h-5 mr-2 text-brand-blue"/> 新規校舎登録</h3>
-                                    <div className="flex gap-4 items-end mb-10">
-                                        <div className="flex-1"><label className="block text-sm font-bold text-gray-700 mb-2">ID (英数)</label><input type="text" value={newCampusId} onChange={e=>setNewCampusId(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-blue" placeholder="shibuya"/></div>
-                                        <div className="flex-1"><label className="block text-sm font-bold text-gray-700 mb-2">校舎名</label><input type="text" value={newCampusName} onChange={e=>setNewCampusName(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-blue" placeholder="渋谷校"/></div>
-                                        <button onClick={handleAddCampus} className="bg-brand-blue text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700">登録</button>
-                                    </div>
-
-                                    <h3 className="text-lg font-bold text-gray-800 mb-6">登録済み校舎一覧 ({campusList.length}校)</h3>
-                                    <div className="overflow-hidden border border-gray-200 rounded-lg">
-                                        <table className="w-full text-sm text-left">
-                                            <thead className="bg-gray-50 text-gray-500 font-medium">
-                                                <tr>
-                                                    <th className="px-6 py-3">校舎名</th>
-                                                    <th className="px-6 py-3">ID</th>
-                                                    <th className="px-6 py-3">連携シート名</th>
-                                                    <th className="px-6 py-3 text-right">操作</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-gray-100 bg-white">
-                                                {campusList.map(c => (
-                                                    <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                                                        <td className="px-6 py-4 font-bold text-gray-700">{c.name}</td>
-                                                        <td className="px-6 py-4 text-gray-500 font-mono">{c.id}</td>
-                                                        <td className="px-6 py-4 text-gray-500">{c.sheetName || '-'}</td>
-                                                        <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                                            <button onClick={() => openEditCampus(c)} className="p-2 text-gray-400 hover:text-brand-blue hover:bg-blue-50 rounded-lg transition-colors"><Edit2 className="w-4 h-4"/></button>
-                                                            <button onClick={() => handleDeleteCampus(c.id, c.name)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4"/></button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                    <h3 className="text-lg font-bold text-gray-800 mb-6">登録済み校舎 ({campusList.length})</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {campusList.map(c=>(<div key={c.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50"><div><div className="font-bold text-gray-700">{c.name}</div></div></div>))}
                                     </div>
                                 </div>
                             )}
