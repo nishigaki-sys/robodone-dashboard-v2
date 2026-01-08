@@ -65,10 +65,10 @@
         import { 
             LayoutDashboard, Users, TrendingUp, Calendar, DollarSign, Activity, Loader2, 
             Settings, Plus, Trash2, School, FileText, Save, Sun, Cloud, CloudRain, Snowflake, Ban, PenTool, 
-            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown, RefreshCw, Database, PieChart as PieIcon, Clock, Search, MapPin
+            ChevronRight, Upload, FileSpreadsheet, LogOut, ArrowRight, Megaphone, CheckCircle2, AlertCircle, X, ChevronDown, RefreshCw, Database, PieChart as PieIcon, Clock, Search, MapPin, Edit2
         } from "lucide-react";
         import { initializeApp } from "firebase/app";
-        import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, getDocs, query, orderBy, where, serverTimestamp, writeBatch } from "firebase/firestore";
+        import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, updateDoc, getDocs, query, orderBy, where, serverTimestamp, writeBatch } from "firebase/firestore";
 
         // ==========================================
         // 1. Firebase Config & Utilities
@@ -101,6 +101,7 @@
         const MONTHS_LIST = ['4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月'];
         const YEARS_LIST = [2022, 2023, 2024, 2025, 2026];
         
+        // Detailed Color Palette
         const COLORS = {
             revenue: '#1E51A2',
             profit: '#10B981',
@@ -150,7 +151,23 @@
                 targetYear += 1;
             }
             const daysInMonth = new Date(targetYear, jsMonth + 1, 0).getDate();
-            return { daysInMonth, year: targetYear, month: jsMonth };
+            const weeks = [];
+            let startDay = 1;
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateObj = new Date(targetYear, jsMonth, day);
+                const dayOfWeek = dateObj.getDay(); 
+                let isWeekEnd = (dayOfWeek === 0) || (day === daysInMonth);
+                if (isWeekEnd) {
+                    weeks.push({
+                        name: `第${weeks.length + 1}週`,
+                        startDay: startDay,
+                        endDay: day,
+                        label: `${startDay}日～${day}日`
+                    });
+                    startDay = day + 1;
+                }
+            }
+            return { weeks, daysInMonth, year: targetYear, month: jsMonth };
         };
 
         // ==========================================
@@ -211,7 +228,7 @@
             let currentStudents = baseStudentCount;
 
             const monthlyStats = MONTHS_LIST.map((monthName, mIdx) => {
-                const { daysInMonth, year: tYear, month: tMonth } = getWeeksStruct(targetYear, mIdx);
+                const { weeks, daysInMonth, year: tYear, month: tMonth } = getWeeksStruct(targetYear, mIdx);
                 
                 const mFinancials = financials.filter(fin => {
                     if (!isTargetCampus(fin)) return false;
@@ -270,6 +287,44 @@
                     };
                 });
 
+                const weeklyData = weeks.map(week => {
+                    const daysInWeek = dailyData.slice(week.startDay - 1, week.endDay);
+                    const sum = (key) => daysInWeek.reduce((acc, d) => acc + (d[key] || 0), 0);
+                    
+                    return {
+                        name: week.name,
+                        label: week.label,
+                        // Students & Marketing
+                        newEnrollments: sum('newEnrollments'),
+                        transferIns: sum('transferIns'),
+                        returns: sum('returns'),
+                        withdrawals: sum('withdrawals'),
+                        withdrawals_neg: sum('withdrawals_neg'),
+                        graduates_neg: sum('graduates_neg'),
+                        transfers_neg: sum('transfers_neg'),
+                        recesses_neg: sum('recesses_neg'),
+                        flyers: sum('flyers'),
+                        trialApp: sum('trialApp'),
+                        eventApp: sum('eventApp'),
+                        trialExec: sum('trialExec'),
+                        eventExec: sum('eventExec'),
+                        
+                        // Financials
+                        revenue: sum('revenue'),
+                        expense: sum('expenseTotal'),
+                        profit: sum('profit'),
+                        
+                        // Detailed Expenses
+                        ad: sum('ad'),
+                        sales: sum('sales'),
+                        labor: sum('labor'),
+                        facility: sum('facility'),
+                        admin: sum('admin'),
+                        hq: sum('hq'),
+                        other: sum('other')
+                    };
+                });
+
                 const sumDaily = (key) => dailyData.reduce((acc, d) => acc + (d[key] || 0), 0);
                 const netChange = (sumDaily('newEnrollments') + sumDaily('transferIns') + sumDaily('returns')) 
                                 - (sumDaily('withdrawals') + -sumDaily('graduates_neg') + -sumDaily('transfers_neg'));
@@ -318,6 +373,7 @@
                     expense: sumDaily('expenseTotal'),
                     profit: sumDaily('profit'), 
                     daily: dailyData,
+                    weekly: weeklyData,
                     detailItems
                 };
             });
@@ -635,6 +691,12 @@
             const [modalTitle, setModalTitle] = useState("");
             const [modalColor, setModalColor] = useState("");
 
+            // Campus Editing State
+            const [editModalOpen, setEditModalOpen] = useState(false);
+            const [editingCampus, setEditingCampus] = useState(null);
+            const [editName, setEditName] = useState("");
+            const [editSheetName, setEditSheetName] = useState("");
+
             const filteredCampusList = useMemo(() => {
                 if (selectedHQCampusId === 'All') return campusList;
                 return campusList.filter(c => c.id === selectedHQCampusId);
@@ -647,6 +709,7 @@
             const displayData = useMemo(() => {
                 if (viewMode === 'annual') return fullDashboardData;
                 const targetMonthData = fullDashboardData.find(m => m.name === selectedMonth);
+                if (viewMode === 'weekly') return targetMonthData ? targetMonthData.weekly : [];
                 return targetMonthData ? targetMonthData.daily : [];
             }, [fullDashboardData, viewMode, selectedMonth]);
 
@@ -707,20 +770,105 @@
                 openDetailModal(catKey, data);
             };
 
-            const viewLabel = { 'annual': '年度', 'monthly': '月度' }[viewMode];
+            const handleAddCampus = async () => {
+                if (!newCampusId || !newCampusName) return showNotify("必須項目が空です", 'error');
+                try {
+                    await setDoc(doc(db, "campuses", newCampusId), { id: newCampusId, name: newCampusName, createdAt: serverTimestamp() });
+                    setNewCampusId(""); setNewCampusName("");
+                    refreshData(); 
+                    showNotify("校舎を追加しました");
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+
+            const handleDeleteCampus = async (id, name) => {
+                if (!confirm(`${name} を削除しますか？`)) return;
+                try {
+                    await deleteDoc(doc(db, "campuses", id));
+                    refreshData(); 
+                    showNotify("校舎を削除しました");
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+
+            const openEditCampus = (campus) => {
+                setEditingCampus(campus);
+                setEditName(campus.name);
+                setEditSheetName(campus.sheetName || "");
+                setEditModalOpen(true);
+            };
+
+            const handleUpdateCampus = async () => {
+                if (!editingCampus) return;
+                try {
+                    await updateDoc(doc(db, "campuses", editingCampus.id), {
+                        name: editName,
+                        sheetName: editSheetName,
+                        updatedAt: serverTimestamp()
+                    });
+                    setEditModalOpen(false);
+                    setEditingCampus(null);
+                    refreshData();
+                    showNotify("校舎情報を更新しました");
+                } catch (e) {
+                    showNotify("更新エラー: " + e.message, 'error');
+                }
+            };
+
+            // Custom Tick for Weekly XAxis
+            const WeeklyAxisTick = ({ x, y, payload }) => {
+                // Find matching data to get the date range label
+                const item = displayData.find(d => d.name === payload.value);
+                return (
+                    <g transform={`translate(${x},${y})`}>
+                        <text x={0} y={0} dy={16} textAnchor="middle" fill="#666" fontSize={12} fontWeight="bold">{payload.value}</text>
+                        {item && item.label && (
+                            <text x={0} y={0} dy={30} textAnchor="middle" fill="#94a3b8" fontSize={10}>{item.label}</text>
+                        )}
+                    </g>
+                );
+            };
+
+            const viewLabel = { 'annual': '年度', 'monthly': '月度', 'weekly': '週次' }[viewMode];
+            const availableViewModes = activeTab === 'students' ? ['annual', 'monthly', 'weekly'] : ['annual', 'monthly'];
 
             return (
                 <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
                     <DetailModal isOpen={modalOpen} onClose={()=>setModalOpen(false)} data={modalData} title={modalTitle} color={modalColor} />
                     
+                    {/* Campus Edit Modal */}
+                    {editModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay backdrop-blur-sm transition-opacity" onClick={() => setEditModalOpen(false)}>
+                            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Edit2 className="w-5 h-5 mr-2 text-brand-blue"/> 校舎情報の修正</h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1">校舎ID (変更不可)</label>
+                                        <input type="text" value={editingCampus?.id} disabled className="w-full bg-gray-100 border border-gray-200 rounded px-3 py-2 text-gray-500 text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1">校舎名</label>
+                                        <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-brand-blue outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1">連携名 (Spreadsheet)</label>
+                                        <input type="text" value={editSheetName} onChange={e => setEditSheetName(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-brand-blue outline-none" />
+                                    </div>
+                                    <div className="flex gap-3 pt-4">
+                                        <button onClick={() => setEditModalOpen(false)} className="flex-1 py-2 text-gray-500 hover:bg-gray-100 rounded-lg">キャンセル</button>
+                                        <button onClick={handleUpdateCampus} className="flex-1 bg-brand-blue text-white py-2 rounded-lg hover:bg-blue-700">更新する</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col z-10">
                         <div className="p-6 border-b border-gray-100 flex items-center space-x-3">
                             <div className="w-8 h-8 bg-brand-blue rounded flex items-center justify-center"><LayoutDashboard className="w-5 h-5 text-white" /></div>
                             <span className="font-bold text-lg text-gray-800">本部コンソール</span>
                         </div>
                         <nav className="flex-1 p-4 space-y-1">
-                            {[{id:'dashboard',l:'サマリー',i:Activity}, {id:'pl',l:'収支・PL',i:DollarSign}, {id:'students',l:'生徒管理',i:Users}, {id:'marketing',l:'マーケティング',i:Megaphone}, {id:'settings',l:'校舎管理',i:Settings}].map(t => (
-                                <button key={t.id} onClick={() => setActiveTab(t.id)} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === t.id ? 'bg-brand-blue text-white shadow-md shadow-brand-blue/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                            {[{id:'dashboard',l:'サマリー',i:Activity}, {id:'pl',l:'収支・PL',i:DollarSign}, {id:'students',l:'生徒数',i:Users}, {id:'marketing',l:'マーケティング',i:Megaphone}, {id:'settings',l:'校舎管理',i:Settings}].map(t => (
+                                <button key={t.id} onClick={() => { setActiveTab(t.id); if(t.id !== 'students' && viewMode === 'weekly') setViewMode('monthly'); }} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === t.id ? 'bg-brand-blue text-white shadow-md shadow-brand-blue/30' : 'text-gray-500 hover:bg-gray-50'}`}>
                                     <t.i className="w-5 h-5 mr-3" />{t.l}
                                 </button>
                             ))}
@@ -744,9 +892,9 @@
                                             </select>
                                         </div>
                                         <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
-                                            {['annual','monthly'].map(m => (
+                                            {availableViewModes.map(m => (
                                                 <button key={m} onClick={()=>setViewMode(m)} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${viewMode===m ? 'bg-white text-brand-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                                                    {{annual:'年度', monthly:'月度'}[m]}
+                                                    {{annual:'年度', monthly:'月度', weekly:'週次'}[m]}
                                                 </button>
                                             ))}
                                         </div>
@@ -766,7 +914,7 @@
                             </div>
                         </header>
                         <div className="p-8 max-w-7xl mx-auto">
-                            {/* Dashboard (Summary) View: Differentiated from PL */}
+                            {/* Dashboard (Summary) View */}
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -777,7 +925,6 @@
                                     </div>
                                     
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                        {/* Simplified Revenue Chart or Monthly Category Comparison */}
                                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-96">
                                             <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 収支サマリー ({viewLabel})</h3>
                                             <ResponsiveContainer width="100%" height="90%">
@@ -793,7 +940,6 @@
                                                         <Line type="monotone" dataKey="profit" name="営業利益" stroke={COLORS.profit} strokeWidth={3} />
                                                     </ComposedChart>
                                                 ) : (
-                                                    // Monthly View: Category Comparison
                                                     <BarChart data={monthlySummaryData} layout="vertical" margin={{left: 20}}>
                                                         <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                                                         <XAxis type="number" />
@@ -809,7 +955,6 @@
                                             </ResponsiveContainer>
                                         </div>
                                         
-                                        {/* Student Flow Stacked Bar Chart */}
                                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-96">
                                             <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Users className="w-5 h-5 mr-2 text-brand-orange"/> 生徒数推移 (増減要因)</h3>
                                             <ResponsiveContainer width="100%" height="90%">
@@ -833,7 +978,7 @@
                                 </div>
                             )}
 
-                            {/* PL (Detail) View: Existing Detailed Graphs */}
+                            {/* PL (Detail) View */}
                             {activeTab === 'pl' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -872,6 +1017,7 @@
                                 </div>
                             )}
                             
+                            {/* Students View */}
                             {activeTab === 'students' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -884,7 +1030,7 @@
                                         <ResponsiveContainer width="100%" height="100%">
                                             <BarChart data={displayData} stackOffset="sign">
                                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                <XAxis dataKey="name" interval={0} />
+                                                <XAxis dataKey="name" interval={0} tick={viewMode === 'weekly' ? WeeklyAxisTick : undefined} />
                                                 <YAxis />
                                                 <Tooltip />
                                                 <Legend />
@@ -926,9 +1072,38 @@
                             
                             {activeTab === 'settings' && (
                                 <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
-                                    <h3 className="text-lg font-bold text-gray-800 mb-6">登録済み校舎 ({campusList.length})</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {campusList.map(c=>(<div key={c.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50"><div><div className="font-bold text-gray-700">{c.name}</div></div></div>))}
+                                    <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Plus className="w-5 h-5 mr-2 text-brand-blue"/> 新規校舎登録</h3>
+                                    <div className="flex gap-4 items-end mb-10">
+                                        <div className="flex-1"><label className="block text-sm font-bold text-gray-700 mb-2">ID (英数)</label><input type="text" value={newCampusId} onChange={e=>setNewCampusId(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-blue" placeholder="shibuya"/></div>
+                                        <div className="flex-1"><label className="block text-sm font-bold text-gray-700 mb-2">校舎名</label><input type="text" value={newCampusName} onChange={e=>setNewCampusName(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-blue" placeholder="渋谷校"/></div>
+                                        <button onClick={handleAddCampus} className="bg-brand-blue text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700">登録</button>
+                                    </div>
+
+                                    <h3 className="text-lg font-bold text-gray-800 mb-6">登録済み校舎一覧 ({campusList.length}校)</h3>
+                                    <div className="overflow-hidden border border-gray-200 rounded-lg">
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="bg-gray-50 text-gray-500 font-medium">
+                                                <tr>
+                                                    <th className="px-6 py-3">校舎名</th>
+                                                    <th className="px-6 py-3">ID</th>
+                                                    <th className="px-6 py-3">連携シート名</th>
+                                                    <th className="px-6 py-3 text-right">操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100 bg-white">
+                                                {campusList.map(c => (
+                                                    <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                                                        <td className="px-6 py-4 font-bold text-gray-700">{c.name}</td>
+                                                        <td className="px-6 py-4 text-gray-500 font-mono">{c.id}</td>
+                                                        <td className="px-6 py-4 text-gray-500">{c.sheetName || '-'}</td>
+                                                        <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                                            <button onClick={() => openEditCampus(c)} className="p-2 text-gray-400 hover:text-brand-blue hover:bg-blue-50 rounded-lg transition-colors"><Edit2 className="w-4 h-4"/></button>
+                                                            <button onClick={() => handleDeleteCampus(c.id, c.name)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4"/></button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
                                 </div>
                             )}
@@ -939,9 +1114,10 @@
         }
 
         // ==========================================
-        // 6. School Console
+        // 6. School Console (Unchanged)
         // ==========================================
         function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
+            // ... (Same logic as previous version) ...
             const [activeTab, setActiveTab] = useState('daily');
             const [selectedMonth, setSelectedMonth] = useState('4月');
             const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
