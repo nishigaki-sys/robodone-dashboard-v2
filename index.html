@@ -140,7 +140,19 @@
             const d = ('0' + date.getDate()).slice(-2);
             return `${y}-${m}-${d}`;
         };
+        
+        // Fiscal Year Calculation (String Based for Safety)
+        const getFiscalYearFromStr = (dateStr) => {
+            if (!dateStr) return -1;
+            // dateStr expected: YYYY-MM-DD
+            const [y, m] = dateStr.split('-').map(Number);
+            if (!y || !m) return -1;
+            return m < 4 ? y - 1 : y;
+        };
+
+        // Date Object based (Legacy support)
         const getFiscalYear = (date) => (date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear());
+        
         const normalizeString = (str) => (!str ? "" : str.replace(/[\s\u3000]/g, "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)));
 
         const getWeeksStruct = (fiscalYear, monthIndex) => {
@@ -211,8 +223,17 @@
                 let count = 0;
                 list.forEach(item => {
                     if (!isTargetCampus(item)) return;
-                    const d = parseDate(item.date);
-                    if (!d || getFiscalYear(d) >= targetYear) return;
+                    // Use string based fiscal year check if possible, otherwise Date
+                    // enrollment items usually have 'date' field as string "YYYY-MM-DD" or timestamp
+                    let fy = -1;
+                    if (typeof item.date === 'string' && item.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                         fy = getFiscalYearFromStr(item.date);
+                    } else {
+                         const d = parseDate(item.date);
+                         if (d) fy = getFiscalYear(d);
+                    }
+                    
+                    if (fy === -1 || fy >= targetYear) return;
                     if (typeFilter && (!item.type || !item.type.includes(typeFilter))) return;
                     count++;
                 });
@@ -230,17 +251,22 @@
 
             const monthlyStats = MONTHS_LIST.map((monthName, mIdx) => {
                 const { weeks, daysInMonth, year: tYear, month: tMonth } = getWeeksStruct(targetYear, mIdx);
+                const tYearPrev = tYear - 1;
                 
+                // --- CURRENT YEAR DATA (String Based Filtering) ---
                 const mFinancials = financials.filter(fin => {
                     if (!isTargetCampus(fin)) return false;
-                    const d = parseDate(fin.date);
-                    return d && d.getFullYear() === tYear && d.getMonth() === tMonth;
+                    const dateStr = typeof fin.date === 'string' ? fin.date : formatDateStr(parseDate(fin.date));
+                    const [fY, fM] = dateStr.split('-').map(Number);
+                    return fY === tYear && fM === (tMonth + 1);
                 });
 
+                // --- PREVIOUS YEAR DATA (String Based Filtering) ---
                 const mFinancialsPrev = financials.filter(fin => {
                     if (!isTargetCampus(fin)) return false;
-                    const d = parseDate(fin.date);
-                    return d && d.getFullYear() === (tYear - 1) && d.getMonth() === tMonth;
+                    const dateStr = typeof fin.date === 'string' ? fin.date : formatDateStr(parseDate(fin.date));
+                    const [fY, fM] = dateStr.split('-').map(Number);
+                    return fY === tYearPrev && fM === (tMonth + 1);
                 });
 
                 const aggFinancials = (fins) => {
@@ -272,9 +298,15 @@
                     
                     const filterDay = (list, typeFilter=null, dateKey='date') => list.filter(item => {
                         if (!isTargetCampus(item)) return false; 
-                        const d = parseDate(item[dateKey]);
-                        if (!d) return false;
-                        return formatDateStr(d) === dateStr && (!typeFilter || item.type?.includes(typeFilter));
+                        // String comparison for exact date match
+                        let itemDateStr = "";
+                        if (typeof item[dateKey] === 'string' && item[dateKey].match(/^\d{4}-\d{2}-\d{2}$/)) {
+                            itemDateStr = item[dateKey];
+                        } else {
+                            const d = parseDate(item[dateKey]);
+                            if (d) itemDateStr = formatDateStr(d);
+                        }
+                        return itemDateStr === dateStr && (!typeFilter || item.type?.includes(typeFilter));
                     }).length;
 
                     const dEnroll = filterDay(enrollments);
