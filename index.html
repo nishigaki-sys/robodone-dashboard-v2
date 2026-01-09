@@ -141,16 +141,13 @@
             return `${y}-${m}-${d}`;
         };
         
-        // Fiscal Year Calculation (String Based for Safety)
         const getFiscalYearFromStr = (dateStr) => {
             if (!dateStr) return -1;
-            // dateStr expected: YYYY-MM-DD
             const [y, m] = dateStr.split('-').map(Number);
             if (!y || !m) return -1;
             return m < 4 ? y - 1 : y;
         };
 
-        // Date Object based (Legacy support)
         const getFiscalYear = (date) => (date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear());
         
         const normalizeString = (str) => (!str ? "" : str.replace(/[\s\u3000]/g, "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)));
@@ -241,6 +238,7 @@
             const prevWithdraw = countBefore(statusChanges, "退会");
             const prevGrad = countBefore(statusChanges, "卒業");
             const prevTransferOut = countBefore(statusChanges, "転校");
+            // 休会と復会は計算に含めない (プラスマイナス0)
             baseStudentCount = (prevEnroll + prevTransferIn) - (prevWithdraw + prevGrad + prevTransferOut);
 
             let currentStudents = baseStudentCount;
@@ -340,6 +338,7 @@
                 });
 
                 const sumDaily = (key) => dailyData.reduce((acc, d) => acc + (d[key] || 0), 0);
+                
                 const netChange = (sumDaily('newEnrollments') + sumDaily('transferIns')) 
                                 - (sumDaily('withdrawals') + -sumDaily('graduates_neg') + -sumDaily('transfers_neg'));
                 currentStudents += netChange;
@@ -1210,9 +1209,335 @@
                             
                             {activeTab === 'settings' && (
                                 <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
-                                    <h3 className="text-lg font-bold text-gray-800 mb-6">登録済み校舎 ({campusList.length})</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {campusList.map(c=>(<div key={c.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50"><div><div className="font-bold text-gray-700">{c.name}</div></div></div>))}
+                                    <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Plus className="w-5 h-5 mr-2 text-brand-blue"/> 新規校舎登録</h3>
+                                    <div className="flex gap-4 items-end mb-10">
+                                        <div className="flex-1"><label className="block text-sm font-bold text-gray-700 mb-2">ID (英数)</label><input type="text" value={newCampusId} onChange={e=>setNewCampusId(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-blue" placeholder="shibuya"/></div>
+                                        <div className="flex-1"><label className="block text-sm font-bold text-gray-700 mb-2">校舎名</label><input type="text" value={newCampusName} onChange={e=>setNewCampusName(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-blue" placeholder="渋谷校"/></div>
+                                        <button onClick={handleAddCampus} className="bg-brand-blue text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700">登録</button>
+                                    </div>
+
+                                    <h3 className="text-lg font-bold text-gray-800 mb-6">登録済み校舎一覧 ({campusList.length}校)</h3>
+                                    <div className="overflow-hidden border border-gray-200 rounded-lg">
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="bg-gray-50 text-gray-500 font-medium">
+                                                <tr>
+                                                    <th className="px-6 py-3">校舎名</th>
+                                                    <th className="px-6 py-3">ID</th>
+                                                    <th className="px-6 py-3">連携シート名</th>
+                                                    <th className="px-6 py-3 text-right">操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100 bg-white">
+                                                {campusList.map(c => (
+                                                    <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                                                        <td className="px-6 py-4 font-bold text-gray-700">{c.name}</td>
+                                                        <td className="px-6 py-4 text-gray-500 font-mono">{c.id}</td>
+                                                        <td className="px-6 py-4 text-gray-500">{c.sheetName || '-'}</td>
+                                                        <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                                            <button onClick={() => openEditCampus(c)} className="p-2 text-gray-400 hover:text-brand-blue hover:bg-blue-50 rounded-lg transition-colors"><Edit2 className="w-4 h-4"/></button>
+                                                            <button onClick={() => handleDeleteCampus(c.id, c.name)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4"/></button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // 6. School Console (Unchanged)
+        // ==========================================
+        function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
+            // ... (Same logic as previous version) ...
+            const [activeTab, setActiveTab] = useState('daily');
+            const [selectedMonth, setSelectedMonth] = useState('4月');
+            const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
+            const [inputData, setInputData] = useState({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
+            const [uploading, setUploading] = useState(false);
+            const [planData, setPlanData] = useState({});
+            const [isSavingPlan, setIsSavingPlan] = useState(false);
+            const [uploadTargetYear, setUploadTargetYear] = useState(selectedYear);
+            
+            // Modal State for Daily Report
+            const [isInputModalOpen, setIsInputModalOpen] = useState(false);
+
+            const lastUploadInfo = useMemo(() => {
+                if (!campus || !allData.financialUpdates) return null;
+                const update = allData.financialUpdates.find(u => u.campusId === campus.id && u.fiscalYear === uploadTargetYear);
+                return update ? parseDate(update.updatedAt) : null;
+            }, [campus, allData.financialUpdates, uploadTargetYear]);
+
+            // ... (Fetch Plan logic) ...
+            useEffect(() => {
+                if (activeTab === 'plan' && campus) {
+                    const fetchPlan = async () => {
+                        try {
+                            const docRef = doc(db, "campus_plans", `${campus.id}_${selectedYear}`);
+                            const docSnap = await getDoc(docRef);
+                            setPlanData(docSnap.exists() ? docSnap.data().plans : createInitialPlanData());
+                        } catch (e) { console.error(e); }
+                    };
+                    fetchPlan();
+                }
+            }, [activeTab, campus, selectedYear]);
+
+            const createInitialPlanData = () => {
+                return MONTHS_LIST.reduce((acc, month) => {
+                    acc[month] = { enrollments: 0, trials: 0, touchTry: 0, flyers: 0, rate: 0 };
+                    return acc;
+                }, {});
+            };
+
+            // Update input form when reportDate changes
+            useEffect(() => {
+                if (!campus) return;
+                const existing = allData.dailyReports.find(r => r.campusId === campus.id && r.date === reportDate);
+                if (existing) {
+                    setInputData({
+                        weather: existing.weather || 'sunny',
+                        flyers: existing.flyers || 0,
+                        touch: existing.touchTry || 0,
+                        trial: existing.trialLessons || 0
+                    });
+                } else {
+                    setInputData({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
+                }
+            }, [reportDate, allData.dailyReports, campus]);
+
+            const handleDateClick = (dateStr) => {
+                setReportDate(dateStr);
+                setIsInputModalOpen(true);
+            };
+
+            const handleSaveReport = async () => {
+                if (!campus) return;
+                try {
+                    await setDoc(doc(db, "daily_reports", `${campus.id}_${reportDate}`), {
+                        campusId: campus.id, date: reportDate, weather: inputData.weather,
+                        flyers: Number(inputData.flyers), touchTry: Number(inputData.touch), trialLessons: Number(inputData.trial),
+                        updatedAt: serverTimestamp()
+                    });
+                    refreshData();
+                    showNotify("日報を保存しました");
+                    setIsInputModalOpen(false);
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+
+            // ... (handlePlanChange, handleSavePlan, handleCsvUpload same as before) ...
+            const handlePlanChange = (month, field, value) => {
+                setPlanData(prev => {
+                    const newData = { ...prev };
+                    newData[month] = { ...newData[month], [field]: Number(value) };
+                    if (field === 'enrollments' || field === 'trials') {
+                        const enr = field === 'enrollments' ? Number(value) : (newData[month].enrollments || 0);
+                        const tri = field === 'trials' ? Number(value) : (newData[month].trials || 0);
+                        newData[month].rate = tri > 0 ? ((enr / tri) * 100).toFixed(1) : 0;
+                    }
+                    return newData;
+                });
+            };
+
+            const handleSavePlan = async () => {
+                if (!campus) return;
+                setIsSavingPlan(true);
+                try {
+                    await setDoc(doc(db, "campus_plans", `${campus.id}_${selectedYear}`), { 
+                        campusId: campus.id, year: selectedYear, plans: planData, updatedAt: serverTimestamp() 
+                    });
+                    showNotify("年間計画を保存しました");
+                } catch (e) { showNotify("保存失敗: " + e.message, 'error'); } finally { setIsSavingPlan(false); }
+            };
+
+            const handleCsvUpload = async (parsedData) => {
+                // ... (CSV upload logic omitted for brevity, same as previous) ...
+                if (!campus) return;
+                setUploading(true);
+                try {
+                    const batchSize = 450; 
+                    const q = query(collection(db, "financials"), where("campusId", "==", campus.id), where("fiscalYear", "==", uploadTargetYear));
+                    const snapshot = await getDocs(q);
+                    const chunks = [];
+                    for (let i = 0; i < snapshot.docs.length; i += batchSize) chunks.push(snapshot.docs.slice(i, i + batchSize));
+                    for (const chunk of chunks) { const deleteBatch = writeBatch(db); chunk.forEach(doc => deleteBatch.delete(doc.ref)); await deleteBatch.commit(); }
+                    const insertChunks = [];
+                    for (let i = 0; i < parsedData.length; i += batchSize) insertChunks.push(parsedData.slice(i, i + batchSize));
+                    for (const chunk of insertChunks) {
+                        const insertBatch = writeBatch(db);
+                        chunk.forEach(item => {
+                            let tYear = Number(uploadTargetYear); if (item.month <= 3) tYear += 1;
+                            const dateStr = `${tYear}-${('0'+item.month).slice(-2)}-01`;
+                            const ref = doc(collection(db, "financials"));
+                            insertBatch.set(ref, { 
+                                date: dateStr, fiscalYear: uploadTargetYear, amount: item.amount, 
+                                category: item.category, subCategory: item.subCategory, accountCode: item.accountCode,
+                                campusId: campus.id, createdAt: serverTimestamp() 
+                            });
+                        });
+                        await insertBatch.commit();
+                    }
+                    await setDoc(doc(db, "financial_updates", `${campus.id}_${uploadTargetYear}`), { campusId: campus.id, fiscalYear: uploadTargetYear, updatedAt: serverTimestamp() });
+                    refreshData();
+                    showNotify(`${parsedData.length}件のデータを取り込みました (重複削除済み)`);
+                } catch (e) { showNotify("エラー: " + e.message, 'error'); } finally { setUploading(false); }
+            };
+
+            if (!campus) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-brand-blue"/></div>;
+            const weatherMap = { sunny: {i:Sun,l:'晴',c:'text-orange-500'}, cloudy: {i:Cloud,l:'曇',c:'text-gray-500'}, rainy: {i:CloudRain,l:'雨',c:'text-blue-500'}, snowy: {i:Snowflake,l:'雪',c:'text-cyan-500'}, closed: {i:Ban,l:'休',c:'text-red-500'} };
+
+            return (
+                <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
+                    {/* Daily Report Input Modal */}
+                    {isInputModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay backdrop-blur-sm transition-opacity" onClick={() => setIsInputModalOpen(false)}>
+                            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full animate-in zoom-in-95 duration-200 p-6" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold text-gray-800 flex items-center"><PenTool className="w-5 h-5 mr-2 text-brand-blue"/> 日報入力</h3>
+                                    <div className="text-sm font-bold text-gray-500">{reportDate}</div>
+                                </div>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 block mb-2">天気</label>
+                                        <div className="flex gap-2 justify-between">
+                                            {Object.entries(weatherMap).map(([k,v])=><button key={k} onClick={()=>setInputData({...inputData,weather:k})} className={`flex-1 py-2 rounded-lg border flex flex-col items-center justify-center transition-colors ${inputData.weather===k?'bg-blue-50 border-brand-blue':'border-gray-100 hover:bg-gray-50'}`}><v.i className={`w-4 h-4 mb-1 ${v.c}`}/><span className="text-[10px] font-bold text-gray-500">{v.l}</span></button>)}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-xs font-bold text-gray-400 block mb-1">門配数</label><input type="number" value={inputData.flyers} onChange={e=>setInputData({...inputData,flyers:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                        <div><label className="text-xs font-bold text-gray-400 block mb-1">T&T数</label><input type="number" value={inputData.touch} onChange={e=>setInputData({...inputData,touch:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                    </div>
+                                    <div><label className="text-xs font-bold text-gray-400 block mb-1">体験会実施数</label><input type="number" value={inputData.trial} onChange={e=>setInputData({...inputData,trial:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                    
+                                    <div className="flex gap-3 mt-6">
+                                        <button onClick={() => setIsInputModalOpen(false)} className="flex-1 py-3 text-gray-500 hover:bg-gray-100 rounded-lg font-bold">キャンセル</button>
+                                        <button onClick={handleSaveReport} className="flex-1 bg-brand-orange text-white font-bold py-3 rounded-lg hover:bg-orange-600 shadow-sm flex items-center justify-center"><Save className="w-4 h-4 mr-2"/>保存</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col z-10">
+                        <div className="p-6 border-b border-gray-100">
+                            <div className="flex items-center space-x-2 mb-1"><School className="w-5 h-5 text-brand-orange" /><span className="font-bold text-sm text-brand-orange">校舎コンソール</span></div>
+                            <h2 className="text-xl font-bold text-gray-800 truncate">{campus.name}</h2>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-1">
+                            {[{id:'daily',l:'日報入力',i:Calendar}, {id:'plan',l:'計画策定',i:FileText}, {id:'finance',l:'収支取込',i:FileSpreadsheet}].map(t => (
+                                <button key={t.id} onClick={() => setActiveTab(t.id)} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === t.id ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                    <t.i className="w-5 h-5 mr-3" />{t.l}
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="p-4 border-t border-gray-100"><button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2"><LogOut className="w-4 h-4 mr-2" /> 戻る</button></div>
+                    </aside>
+                    <main className="flex-1 overflow-y-auto">
+                        <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
+                            <h2 className="text-xl font-bold text-gray-800">{{daily:'日報管理', plan:'計画策定', finance:'収支管理'}[activeTab]}</h2>
+                            <div className="flex items-center space-x-4">
+                                <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-orange outline-none">
+                                    {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
+                                </select>
+                                <div className="w-8 h-8 rounded-full bg-brand-blue flex items-center justify-center text-white font-bold text-xs">SC</div>
+                            </div>
+                        </header>
+                        <div className="p-8 max-w-5xl mx-auto">
+                            {activeTab === 'daily' && (
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in">
+                                    <div className="lg:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between mb-4">
+                                            <h3 className="font-bold text-gray-700 flex items-center"><Calendar className="w-4 h-4 mr-2"/> {selectedYear}年 {selectedMonth}</h3>
+                                            <div className="flex gap-1">{MONTHS_LIST.map(m=><button key={m} onClick={()=>setSelectedMonth(m)} className={`text-xs px-2 py-1 rounded ${selectedMonth===m?'bg-brand-orange text-white':'text-gray-400 hover:bg-gray-100'}`}>{m}</button>)}</div>
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                                            {['日','月','火','水','木','金','土'].map((d,i)=><div key={i} className="bg-gray-50 text-center py-2 text-xs font-bold text-gray-500">{d}</div>)}
+                                            {Array.from({length:31},(_,i)=>i+1).map(d=>{
+                                                const targetMonthIdx = MONTHS_LIST.indexOf(selectedMonth);
+                                                let tYear = Number(selectedYear);
+                                                let tMonth = targetMonthIdx + 3;
+                                                if (tMonth > 11) { tMonth -= 12; tYear++; }
+                                                const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+d).slice(-2)}`; 
+                                                const report = allData.dailyReports.find(r => r.campusId === campus.id && r.date === dateStr);
+                                                const WeatherIcon = report && weatherMap[report.weather] ? weatherMap[report.weather].i : null;
+                                                const isToday = dateStr === formatDateStr(new Date());
+
+                                                return (
+                                                    <div key={d} onClick={()=>handleDateClick(dateStr)} className={`bg-white h-24 p-1 cursor-pointer hover:bg-blue-50 relative flex flex-col justify-between border border-transparent hover:border-blue-200 ${isToday?'bg-blue-50/60':''}`}>
+                                                        <div className="flex justify-between items-start">
+                                                            <span className={`text-xs font-bold ${isToday?'text-brand-blue':'text-gray-700'}`}>{d}</span>
+                                                            {WeatherIcon && <WeatherIcon className={`w-3 h-3 ${weatherMap[report.weather].c}`}/>}
+                                                        </div>
+                                                        {report && (
+                                                            <div className="text-[9px] text-gray-500 space-y-0.5">
+                                                                <div className="flex justify-between"><span>門配</span><span className="font-bold">{report.flyers}</span></div>
+                                                                <div className="flex justify-between"><span>T&T</span><span className="font-bold">{report.touchTry}</span></div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab === 'plan' && (
+                                <div className="space-y-6 animate-in fade-in">
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="font-bold text-gray-800 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-brand-orange"/> {selectedYear}年度 計画入力</h3>
+                                            <button onClick={handleSavePlan} disabled={isSavingPlan} className="bg-brand-blue text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 flex items-center">{isSavingPlan ? <Loader2 className="animate-spin w-4 h-4 mr-2"/> : <Save className="w-4 h-4 mr-2"/>} 保存する</button>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left border-collapse">
+                                                <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200">
+                                                    <tr><th className="px-4 py-3 min-w-[80px]">月度</th><th className="px-4 py-3 min-w-[100px]">目標入会</th><th className="px-4 py-3 min-w-[100px]">体験会数</th><th className="px-4 py-3 min-w-[100px]">門配目標</th><th className="px-4 py-3 min-w-[80px]">入会率</th></tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {MONTHS_LIST.map((m) => (
+                                                        <tr key={m} className="hover:bg-gray-50">
+                                                            <td className="px-4 py-2 font-bold text-gray-700">{m}</td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.enrollments || 0} onChange={(e)=>handlePlanChange(m, 'enrollments', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.trials || 0} onChange={(e)=>handlePlanChange(m, 'trials', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.flyers || 0} onChange={(e)=>handlePlanChange(m, 'flyers', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2 text-right font-mono text-gray-500">{planData[m]?.rate || 0}%</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab === 'finance' && (
+                                <div className="space-y-8 bg-white p-8 rounded-xl shadow-sm border border-gray-100 animate-in fade-in">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-lg font-bold text-gray-800 flex items-center"><FileSpreadsheet className="w-5 h-5 mr-2 text-brand-orange"/> 収支CSV取込 (横持ち形式)</h3>
+                                        {lastUploadInfo && (
+                                            <div className="flex items-center text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full border border-gray-200">
+                                                <Clock className="w-3 h-3 mr-1.5" />
+                                                最終更新: <span className="font-bold ml-1">{lastUploadInfo.toLocaleString()}</span>
+                                                <span className="ml-1 text-gray-400">({uploadTargetYear}年度)</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    <div className="max-w-xl mx-auto">
+                                        <CsvUploader onUpload={handleCsvUpload} isUploading={uploading} targetYear={uploadTargetYear} setTargetYear={setUploadTargetYear} />
+                                    </div>
+                                    
+                                    <div className="text-sm text-gray-500 bg-gray-50 p-4 rounded-lg">
+                                        <p className="font-bold mb-2">取込ルール:</p>
+                                        <ul className="list-disc list-inside space-y-1">
+                                            <li><span className="font-bold text-red-500">重要:</span> 詳細分析のため「勘定コード」を保存します。以前のデータを上書き更新してください。</li>
+                                            <li>取り込みを実行すると、選択した年度の既存データは全て上書き(削除→再登録)されます。</li>
+                                            <li>5系:売上, 61:広告, 62:販売, 63:人件費, 64:設備, 65:管理, 69:本社 に自動分類されます。</li>
+                                        </ul>
                                     </div>
                                 </div>
                             )}
