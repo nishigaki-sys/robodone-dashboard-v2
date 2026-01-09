@@ -239,6 +239,7 @@
             const prevWithdraw = countBefore(statusChanges, "退会");
             const prevGrad = countBefore(statusChanges, "卒業");
             const prevTransferOut = countBefore(statusChanges, "転校");
+            // 休会と復会は計算に含めない (プラスマイナス0)
             baseStudentCount = (prevEnroll + prevTransferIn) - (prevWithdraw + prevGrad + prevTransferOut);
 
             let currentStudents = baseStudentCount;
@@ -390,6 +391,64 @@
 
             return monthlyStats;
         };
+
+        // Aggregation Utility for Half/Quarter
+        const aggregatePeriod = (monthlyData, periodType) => {
+            if (periodType === 'annual') return monthlyData;
+            
+            let groups = [];
+            if (periodType === 'half') {
+                groups = [
+                    { name: '上期', months: ['4月','5月','6月','7月','8月','9月'] },
+                    { name: '下期', months: ['10月','11月','12月','1月','2月','3月'] }
+                ];
+            } else if (periodType === 'quarter') {
+                groups = [
+                    { name: '第1四半期', months: ['4月','5月','6月'] },
+                    { name: '第2四半期', months: ['7月','8月','9月'] },
+                    { name: '第3四半期', months: ['10月','11月','12月'] },
+                    { name: '第4四半期', months: ['1月','2月','3月'] }
+                ];
+            }
+
+            return groups.map(g => {
+                const targets = monthlyData.filter(d => g.months.includes(d.name));
+                const agg = targets.reduce((acc, curr) => {
+                    const keys = [
+                        'revenue','expense','profit','ad','sales','labor','facility','admin','hq','other','partTime',
+                        'newEnrollments','transferIns','returns','withdrawals','graduates_neg','transfers_neg','recesses_neg','flyers','trialApp','eventApp','trialExec','eventExec',
+                        'withdrawals_neg', 'transfers_neg', 'graduates_neg', 'recesses_neg'
+                    ];
+                    keys.forEach(k => {
+                        if (curr[k] !== undefined) acc[k] = (acc[k] || 0) + curr[k];
+                    });
+                    
+                    // Detail items aggregation
+                    if (curr.detailItems) {
+                        Object.keys(curr.detailItems).forEach(cat => {
+                            if (!acc.detailItems[cat]) acc.detailItems[cat] = [];
+                            curr.detailItems[cat].forEach(item => {
+                                const existing = acc.detailItems[cat].find(i => i.name === item.name);
+                                if (existing) existing.value += item.value;
+                                else acc.detailItems[cat].push({ ...item });
+                            });
+                        });
+                    }
+                    return acc;
+                }, { name: g.name, detailItems: {} });
+                
+                // Students should take the last month's value
+                if (targets.length > 0) {
+                    agg.students = targets[targets.length - 1].students;
+                }
+                
+                // Sort details
+                Object.keys(agg.detailItems).forEach(k => agg.detailItems[k].sort((a,b) => b.value - a.value));
+                
+                return agg;
+            });
+        };
+
 
         // ==========================================
         // 3. UI Components
@@ -695,7 +754,7 @@
             const [newCampusName, setNewCampusName] = useState("");
             const [newCampusId, setNewCampusId] = useState("");
             const [selectedHQCampusId, setSelectedHQCampusId] = useState('All');
-            const [plViewCategory, setPlViewCategory] = useState('all'); // 'all', 'revenue', 'labor', ...
+            const [plViewCategory, setPlViewCategory] = useState('all');
 
             const [modalOpen, setModalOpen] = useState(false);
             const [modalData, setModalData] = useState([]);
@@ -720,8 +779,8 @@
 
             const displayData = useMemo(() => {
                 if (viewMode === 'annual') return fullDashboardData;
+                if (viewMode === 'half' || viewMode === 'quarter') return aggregatePeriod(fullDashboardData, viewMode);
                 const targetMonthData = fullDashboardData.find(m => m.name === selectedMonth);
-                if (viewMode === 'weekly') return targetMonthData ? targetMonthData.weekly : [];
                 return targetMonthData ? targetMonthData.daily : [];
             }, [fullDashboardData, viewMode, selectedMonth]);
 
@@ -772,10 +831,14 @@
             }, [monthDataForPL, viewMode]);
 
             const currentTotalStudents = useMemo(() => {
-                if (viewMode === 'annual') return fullDashboardData[fullDashboardData.length - 1]?.students || 0;
+                if (viewMode === 'annual' || viewMode === 'half' || viewMode === 'quarter') {
+                    // For aggregate periods, use the last item's student count if available, otherwise 0
+                    // displayData is already an array of periods for half/quarter.
+                    return displayData.length > 0 ? displayData[displayData.length - 1].students : 0;
+                }
                 const mData = fullDashboardData.find(m => m.name === selectedMonth);
                 return mData ? mData.students : 0;
-            }, [fullDashboardData, viewMode, selectedMonth]);
+            }, [fullDashboardData, viewMode, selectedMonth, displayData]);
 
             const openDetailModal = (categoryKey, monthData) => {
                 if (!monthData || !monthData.detailItems || !monthData.detailItems[categoryKey]) return;
@@ -845,12 +908,8 @@
                 );
             };
             
-            // Build Dynamic PL Chart Data based on plViewCategory
             const plChartData = useMemo(() => {
                 if (plViewCategory === 'all') return displayData;
-                
-                // If specific category, map data to show stacked sub-items
-                // Collect all unique sub-keys for this category
                 const uniqueKeys = new Set();
                 const processed = displayData.map(d => {
                     const base = { name: d.name };
@@ -865,13 +924,13 @@
             }, [displayData, plViewCategory]);
 
 
-            const viewLabel = { 'annual': '年度', 'monthly': '月度', 'weekly': '週次' }[viewMode];
-            const availableViewModes = activeTab === 'students' ? ['annual', 'monthly', 'weekly'] : ['annual', 'monthly'];
+            const viewLabel = { 'annual': '年度', 'half': '半期', 'quarter': '四半期', 'monthly': '月度', 'weekly': '週次' }[viewMode];
+            const availableViewModes = ['annual', 'half', 'quarter', 'monthly'];
+            if (activeTab === 'students') availableViewModes.push('weekly');
 
-            // Detailed PL row selection
             const handlePLRowClick = (item) => {
                 if (!monthDataForPL) return;
-                if (item.id === 'revenue' || item.id === 'profit') return; // No details for these yet
+                if (item.id === 'revenue' || item.id === 'profit') return;
                 setSelectedPLItem(item);
             };
 
@@ -939,11 +998,11 @@
                                         <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
                                             {availableViewModes.map(m => (
                                                 <button key={m} onClick={()=>setViewMode(m)} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${viewMode===m ? 'bg-white text-brand-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                                                    {{annual:'年度', monthly:'月度', weekly:'週次'}[m]}
+                                                    {{annual:'年度', half:'半期', quarter:'四半期', monthly:'月度', weekly:'週次'}[m]}
                                                 </button>
                                             ))}
                                         </div>
-                                        {viewMode !== 'annual' && (
+                                        {viewMode === 'monthly' && (
                                             <div className="flex items-center bg-gray-50 rounded-lg px-2 py-1 border border-gray-200">
                                                 <select value={selectedMonth} onChange={(e)=>setSelectedMonth(e.target.value)} className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer">
                                                     {MONTHS_LIST.map(m=><option key={m} value={m}>{m}</option>)}
@@ -962,29 +1021,20 @@
                             {/* Dashboard (Summary) View */}
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-8 animate-in fade-in">
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                                         <StatCard title="売上" value={formatYen(totals.revenue)} subValue={viewLabel} icon={DollarSign} colorClass="text-brand-blue" />
-                                        <StatCard title="アルバイト人件費率" value={`${totals.revenue > 0 ? (totals.partTime / totals.revenue * 100).toFixed(1) : 0}%`} subValue="売上比" icon={TrendingDown} colorClass="text-rose-500" />
-                                        <StatCard title={`入会数 (${viewLabel})`} value={`${totals.newEnrollments}名`} subValue="期間合計" icon={TrendingUp} colorClass="text-emerald-500" />
-                                        <StatCard title={`退会数 (${viewLabel})`} value={`${totals.withdrawals}名`} subValue="期間合計" icon={TrendingUp} colorClass="text-rose-500" />
+                                        <StatCard title="費用" value={formatYen(totals.expense)} subValue={viewLabel} icon={TrendingDown} colorClass="text-rose-500" />
+                                        <StatCard title="営業利益" value={formatYen(totals.profit)} subValue={viewLabel} icon={Activity} colorClass="text-emerald-500" />
+                                        <StatCard title="入会数" value={`${totals.newEnrollments}名`} subValue={viewLabel} icon={Users} colorClass="text-emerald-500" />
+                                        <StatCard title="退会数" value={`${totals.withdrawals}名`} subValue={viewLabel} icon={Users} colorClass="text-rose-500" />
+                                        <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末':'期間末'} icon={TrendingUp} colorClass="text-brand-blue" />
                                     </div>
                                     
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-96">
                                             <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 収支サマリー ({viewLabel})</h3>
                                             <ResponsiveContainer width="100%" height="90%">
-                                                {viewMode === 'annual' ? (
-                                                    <ComposedChart data={displayData}>
-                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                        <XAxis dataKey="name" interval={0} />
-                                                        <YAxis />
-                                                        <Tooltip formatter={(value)=>formatYen(value)} />
-                                                        <Legend />
-                                                        <Bar dataKey="revenue" name="売上" fill={COLORS.revenue} barSize={20} />
-                                                        <Bar dataKey="expense" name="費用" fill={COLORS.labor} barSize={20} />
-                                                        <Line type="monotone" dataKey="profit" name="営業利益" stroke={COLORS.profit} strokeWidth={3} />
-                                                    </ComposedChart>
-                                                ) : (
+                                                {viewMode === 'monthly' ? (
                                                     <BarChart data={monthlySummaryData} layout="vertical" margin={{left: 20}}>
                                                         <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                                                         <XAxis type="number" />
@@ -996,6 +1046,17 @@
                                                             ))}
                                                         </Bar>
                                                     </BarChart>
+                                                ) : (
+                                                    <ComposedChart data={displayData}>
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                        <XAxis dataKey="name" interval={0} />
+                                                        <YAxis />
+                                                        <Tooltip formatter={(value)=>formatYen(value)} />
+                                                        <Legend />
+                                                        <Bar dataKey="revenue" name="売上" fill={COLORS.revenue} barSize={20} />
+                                                        <Bar dataKey="expense" name="費用" fill={COLORS.labor} barSize={20} />
+                                                        <Line type="monotone" dataKey="profit" name="営業利益" stroke={COLORS.profit} strokeWidth={3} />
+                                                    </ComposedChart>
                                                 )}
                                             </ResponsiveContainer>
                                         </div>
@@ -1025,181 +1086,103 @@
                             {/* PL (Detail) View */}
                             {activeTab === 'pl' && (
                                 <div className="space-y-8 animate-in fade-in">
-                                    {/* Monthly PL Breakdown Table View */}
-                                    {viewMode === 'monthly' ? (
-                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
-                                            {/* Left: Major Category Table */}
-                                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                                                <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center">
-                                                    <DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> {selectedMonth} 収支内訳
-                                                </h3>
-                                                <div className="overflow-x-auto">
+                                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                                        <StatCard title="売上" value={formatYen(totals.revenue)} subValue={viewLabel} icon={DollarSign} colorClass="text-brand-blue" />
+                                        <StatCard title="費用" value={formatYen(totals.expense)} subValue={viewLabel} icon={ArrowRight} colorClass="text-rose-500" />
+                                        <StatCard title="営業利益" value={formatYen(totals.profit)} subValue={viewLabel} icon={Activity} colorClass="text-emerald-500" />
+                                        <StatCard title="アルバイト人件費率" value={`${totals.revenue > 0 ? (totals.partTime / totals.revenue * 100).toFixed(1) : 0}%`} subValue="売上比" icon={TrendingDown} colorClass="text-rose-500" />
+                                        <StatCard title="利益率" value={`${totals.revenue ? ((totals.profit/totals.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" icon={TrendingUp} colorClass="text-brand-orange" />
+                                    </div>
+                                    
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="text-lg font-bold text-gray-800 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 詳細収支推移 ({viewLabel})</h3>
+                                            <div className="flex items-center space-x-2">
+                                                <span className="text-xs text-gray-500">表示科目:</span>
+                                                <select value={plViewCategory} onChange={(e) => setPlViewCategory(e.target.value)} className="text-xs border border-gray-300 rounded px-2 py-1 outline-none">
+                                                    <option value="all">全体 (サマリー)</option>
+                                                    <option value="revenue">売上</option>
+                                                    <option value="ad">広告宣伝費</option>
+                                                    <option value="sales">販売費</option>
+                                                    <option value="labor">人件費</option>
+                                                    <option value="facility">設備費</option>
+                                                    <option value="admin">一般管理費</option>
+                                                    <option value="hq">本社費</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        {viewMode === 'monthly' ? (
+                                            <div className="grid grid-cols-2 gap-8 h-full">
+                                                 <div className="overflow-x-auto h-full">
                                                     <table className="w-full text-sm">
                                                         <thead className="bg-gray-50 text-gray-500 font-medium">
-                                                            <tr>
-                                                                <th className="px-4 py-2 text-left">科目（大分類）</th>
-                                                                <th className="px-4 py-2 text-right">実績</th>
-                                                                <th className="px-4 py-2 text-right">売上比</th>
-                                                                <th className="px-4 py-2 text-right">前年同月</th>
-                                                                <th className="px-4 py-2 text-right">前年比</th>
-                                                            </tr>
+                                                            <tr><th className="px-4 py-2 text-left">科目</th><th className="px-4 py-2 text-right">実績</th><th className="px-4 py-2 text-right">売上比</th><th className="px-4 py-2 text-right">前年</th><th className="px-4 py-2 text-right">前年比</th></tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-100">
-                                                            {monthlySummaryData.map((item, idx) => {
+                                                            {monthlySummaryData.map((item) => {
                                                                 const isProfit = item.id === 'profit';
-                                                                const isRevenue = item.id === 'revenue';
                                                                 const ratio = monthlySummaryData[0].value > 0 ? (item.value / monthlySummaryData[0].value * 100).toFixed(1) : '-';
                                                                 const yoy = item.prev > 0 ? ((item.value - item.prev) / item.prev * 100).toFixed(1) : '-';
-                                                                const yoyColor = yoy > 0 ? (isProfit || isRevenue ? 'text-emerald-600' : 'text-rose-600') : (isProfit || isRevenue ? 'text-rose-600' : 'text-emerald-600');
-                                                                
                                                                 return (
-                                                                    <tr key={item.id} onClick={() => handlePLRowClick(item)} className={`hover:bg-blue-50 cursor-pointer transition-colors ${selectedPLItem?.id === item.id ? 'bg-blue-50 border-l-4 border-l-brand-blue' : ''}`}>
-                                                                        <td className="px-4 py-3 font-bold text-gray-700 flex items-center">
-                                                                            <div className="w-3 h-3 rounded-full mr-2" style={{backgroundColor: item.fill}}></div>
-                                                                            {item.name}
-                                                                        </td>
-                                                                        <td className="px-4 py-3 text-right font-bold">{formatYen(item.value)}</td>
+                                                                    <tr key={item.id} onClick={() => handlePLRowClick(item)} className={`hover:bg-blue-50 cursor-pointer ${selectedPLItem?.id === item.id ? 'bg-blue-50' : ''}`}>
+                                                                        <td className="px-4 py-3 font-bold text-gray-700 flex items-center"><div className="w-3 h-3 rounded-full mr-2" style={{backgroundColor: item.fill}}></div>{item.name}</td>
+                                                                        <td className="px-4 py-3 text-right">{formatYen(item.value)}</td>
                                                                         <td className="px-4 py-3 text-right text-gray-500">{ratio}%</td>
                                                                         <td className="px-4 py-3 text-right text-gray-400">{formatYen(item.prev)}</td>
-                                                                        <td className={`px-4 py-3 text-right font-bold ${yoyColor}`}>{yoy !== '-' ? (yoy > 0 ? '+' : '') + yoy + '%' : '-'}</td>
+                                                                        <td className={`px-4 py-3 text-right font-bold ${yoy > 0 ? (isProfit ? 'text-emerald-600' : 'text-rose-600') : (isProfit ? 'text-rose-600' : 'text-emerald-600')}`}>{yoy !== '-' ? yoy + '%' : '-'}</td>
                                                                     </tr>
                                                                 );
                                                             })}
                                                         </tbody>
                                                     </table>
                                                 </div>
-                                            </div>
-
-                                            {/* Right: Detail Breakdown (Drilldown) */}
-                                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                                                {selectedPLItem ? (
-                                                    <>
-                                                        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                            <div className="w-4 h-4 rounded-full mr-2" style={{backgroundColor: selectedPLItem.fill}}></div>
-                                                            {selectedPLItem.name} 詳細内訳
-                                                        </h3>
-                                                        <div className="flex-1 overflow-y-auto pr-2">
-                                                            <div className="space-y-3">
-                                                                {monthDataForPL.detailItems[selectedPLItem.id] && monthDataForPL.detailItems[selectedPLItem.id].length > 0 ? (
-                                                                    monthDataForPL.detailItems[selectedPLItem.id].map((detail, idx) => {
-                                                                        const share = (detail.value / selectedPLItem.value * 100).toFixed(1);
-                                                                        const prevDetail = monthDataForPL.prevDetailItems?.[selectedPLItem.id]?.find(p => p.name === detail.name);
-                                                                        const yoy = prevDetail && prevDetail.value > 0 ? ((detail.value - prevDetail.value) / prevDetail.value * 100).toFixed(1) : '-';
-                                                                        
-                                                                        return (
-                                                                            <div key={idx} className="p-3 border border-gray-100 rounded-lg hover:shadow-sm transition-shadow">
-                                                                                <div className="flex justify-between items-center mb-1">
-                                                                                    <span className="font-bold text-gray-700">{detail.name}</span>
-                                                                                    <span className="font-bold text-gray-900">{formatYen(detail.value)}</span>
-                                                                                </div>
-                                                                                <div className="flex justify-between text-xs text-gray-500">
-                                                                                    <span className="font-mono bg-gray-100 px-1 rounded">{detail.code}</span>
-                                                                                    <div className="flex gap-3">
-                                                                                        <span>構成比: {share}%</span>
-                                                                                        <span>前年比: {yoy !== '-' ? (yoy > 0 ? '+' : '') + yoy + '%' : '-'}</span>
-                                                                                    </div>
-                                                                                </div>
-                                                                                <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5">
-                                                                                    <div className="h-1.5 rounded-full" style={{width: `${share}%`, backgroundColor: selectedPLItem.fill}}></div>
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                    })
-                                                                ) : (
-                                                                    <div className="text-center text-gray-400 py-10">詳細データがありません</div>
-                                                                )}
+                                                <div className="h-full flex flex-col">
+                                                     {selectedPLItem ? (
+                                                         <>
+                                                            <h3 className="text-lg font-bold text-gray-800 mb-2">{selectedPLItem.name} 詳細</h3>
+                                                            <div className="flex-1 overflow-y-auto">
+                                                                {monthDataForPL.detailItems[selectedPLItem.id]?.map((d, i) => (
+                                                                    <div key={i} className="flex justify-between p-2 border-b border-gray-50 text-sm"><span>{d.name}</span><span>{formatYen(d.value)}</span></div>
+                                                                ))}
                                                             </div>
-                                                        </div>
-                                                        <div className="mt-6 h-64 border-t border-gray-100 pt-4">
-                                                            <h4 className="text-xs font-bold text-gray-400 mb-2 text-center">構成比グラフ</h4>
-                                                            <ResponsiveContainer width="100%" height="100%">
-                                                                <PieChart>
-                                                                    <Pie 
-                                                                        data={monthDataForPL.detailItems[selectedPLItem.id]} 
-                                                                        cx="50%" cy="50%" 
-                                                                        innerRadius={60} 
-                                                                        outerRadius={80} 
-                                                                        paddingAngle={2} 
-                                                                        dataKey="value"
-                                                                    >
-                                                                        {monthDataForPL.detailItems[selectedPLItem.id]?.map((entry, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
-                                                                    </Pie>
-                                                                    <Tooltip formatter={(value)=>formatYen(value)} />
-                                                                </PieChart>
-                                                            </ResponsiveContainer>
-                                                        </div>
-                                                    </>
-                                                ) : (
-                                                    <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                                                        <DollarSign className="w-12 h-12 mb-4 opacity-20"/>
-                                                        <p>左側の表から項目を選択すると<br/>詳細内訳が表示されます</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        // Annual View (Existing Charts with Switcher)
-                                        <>
-                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                                <StatCard title="売上" value={formatYen(totals.revenue)} subValue={viewLabel} icon={DollarSign} colorClass="text-brand-blue" />
-                                                <StatCard title="費用合計" value={formatYen(totals.expense)} subValue={viewLabel} icon={ArrowRight} colorClass="text-rose-500" />
-                                                <StatCard title="営業利益" value={formatYen(totals.profit)} subValue={viewLabel} icon={Activity} colorClass="text-emerald-500" />
-                                                <StatCard title="利益率" value={`${totals.revenue ? ((totals.profit/totals.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" icon={TrendingUp} colorClass="text-brand-orange" />
-                                            </div>
-                                            
-                                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
-                                                <div className="flex justify-between items-center mb-6">
-                                                    <h3 className="text-lg font-bold text-gray-800 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 詳細収支推移 ({viewLabel})</h3>
-                                                    <div className="flex items-center space-x-2">
-                                                        <span className="text-xs text-gray-500">表示科目:</span>
-                                                        <select value={plViewCategory} onChange={(e) => setPlViewCategory(e.target.value)} className="text-xs border border-gray-300 rounded px-2 py-1 outline-none">
-                                                            <option value="all">全体 (サマリー)</option>
-                                                            <option value="revenue">売上</option>
-                                                            <option value="ad">広告宣伝費</option>
-                                                            <option value="sales">販売費</option>
-                                                            <option value="labor">人件費</option>
-                                                            <option value="facility">設備費</option>
-                                                            <option value="admin">一般管理費</option>
-                                                            <option value="hq">本社費</option>
-                                                        </select>
-                                                    </div>
+                                                         </>
+                                                     ) : <div className="flex items-center justify-center h-full text-gray-400">科目を選択してください</div>}
                                                 </div>
-                                                <ResponsiveContainer width="100%" height="90%">
-                                                    {plViewCategory === 'all' ? (
-                                                        <ComposedChart data={displayData} stackOffset="sign">
-                                                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                            <XAxis dataKey="name" interval={0} />
-                                                            <YAxis />
-                                                            <Tooltip formatter={(value)=>formatYen(value)} />
-                                                            <Legend />
-                                                            
-                                                            <Bar dataKey="ad" name="広告宣伝費" stackId="exp" fill={COLORS.ad} onClick={(data, i) => onBarClick(data, i, null, 'ad')} cursor="pointer"/>
-                                                            <Bar dataKey="sales" name="販売費" stackId="exp" fill={COLORS.sales} onClick={(data, i) => onBarClick(data, i, null, 'sales')} cursor="pointer"/>
-                                                            <Bar dataKey="labor" name="人件費" stackId="exp" fill={COLORS.labor} onClick={(data, i) => onBarClick(data, i, null, 'labor')} cursor="pointer"/>
-                                                            <Bar dataKey="facility" name="設備費" stackId="exp" fill={COLORS.facility} onClick={(data, i) => onBarClick(data, i, null, 'facility')} cursor="pointer"/>
-                                                            <Bar dataKey="admin" name="一般管理費" stackId="exp" fill={COLORS.admin} onClick={(data, i) => onBarClick(data, i, null, 'admin')} cursor="pointer"/>
-                                                            <Bar dataKey="hq" name="本社費" stackId="exp" fill={COLORS.hq} onClick={(data, i) => onBarClick(data, i, null, 'hq')} cursor="pointer"/>
-                                                            <Bar dataKey="other" name="その他" stackId="exp" fill={COLORS.other} onClick={(data, i) => onBarClick(data, i, null, 'other')} cursor="pointer"/>
-
-                                                            <Line type="monotone" dataKey="revenue" name="売上 (A51)" stroke={COLORS.revenue} strokeWidth={3} dot={{r:4}} activeDot={{r:6}} />
-                                                            <Line type="monotone" dataKey="profit" name="営業利益 (AA5)" stroke={COLORS.profit} strokeWidth={2} strokeDasharray="5 5" />
-                                                        </ComposedChart>
-                                                    ) : (
-                                                        <BarChart data={plChartData.data}>
-                                                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                             <XAxis dataKey="name" interval={0} />
-                                                             <YAxis />
-                                                             <Tooltip formatter={(value)=>formatYen(value)} />
-                                                             <Legend />
-                                                             {plChartData.keys.map((key, index) => (
-                                                                <Bar key={key} dataKey={key} stackId="a" fill={SUB_COLORS[index % SUB_COLORS.length]} />
-                                                             ))}
-                                                        </BarChart>
-                                                    )}
-                                                </ResponsiveContainer>
                                             </div>
-                                        </>
-                                    )}
+                                        ) : (
+                                            <ResponsiveContainer width="100%" height="90%">
+                                                {plViewCategory === 'all' ? (
+                                                    <ComposedChart data={displayData} stackOffset="sign">
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                        <XAxis dataKey="name" interval={0} />
+                                                        <YAxis />
+                                                        <Tooltip formatter={(value)=>formatYen(value)} />
+                                                        <Legend />
+                                                        <Bar dataKey="ad" name="広告宣伝費" stackId="exp" fill={COLORS.ad} onClick={(data, i) => onBarClick(data, i, null, 'ad')} cursor="pointer"/>
+                                                        <Bar dataKey="sales" name="販売費" stackId="exp" fill={COLORS.sales} onClick={(data, i) => onBarClick(data, i, null, 'sales')} cursor="pointer"/>
+                                                        <Bar dataKey="labor" name="人件費" stackId="exp" fill={COLORS.labor} onClick={(data, i) => onBarClick(data, i, null, 'labor')} cursor="pointer"/>
+                                                        <Bar dataKey="facility" name="設備費" stackId="exp" fill={COLORS.facility} onClick={(data, i) => onBarClick(data, i, null, 'facility')} cursor="pointer"/>
+                                                        <Bar dataKey="admin" name="一般管理費" stackId="exp" fill={COLORS.admin} onClick={(data, i) => onBarClick(data, i, null, 'admin')} cursor="pointer"/>
+                                                        <Bar dataKey="hq" name="本社費" stackId="exp" fill={COLORS.hq} onClick={(data, i) => onBarClick(data, i, null, 'hq')} cursor="pointer"/>
+                                                        <Bar dataKey="other" name="その他" stackId="exp" fill={COLORS.other} onClick={(data, i) => onBarClick(data, i, null, 'other')} cursor="pointer"/>
+                                                        <Line type="monotone" dataKey="revenue" name="売上" stroke={COLORS.revenue} strokeWidth={3} />
+                                                        <Line type="monotone" dataKey="profit" name="営業利益" stroke={COLORS.profit} strokeWidth={2} strokeDasharray="5 5" />
+                                                    </ComposedChart>
+                                                ) : (
+                                                    <BarChart data={plChartData.data}>
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                        <XAxis dataKey="name" interval={0} />
+                                                        <YAxis />
+                                                        <Tooltip formatter={(value)=>formatYen(value)} />
+                                                        <Legend />
+                                                        {plChartData.keys.map((key, index) => (
+                                                            <Bar key={key} dataKey={key} stackId="a" fill={SUB_COLORS[index % SUB_COLORS.length]} />
+                                                        ))}
+                                                    </BarChart>
+                                                )}
+                                            </ResponsiveContainer>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                             
@@ -1223,11 +1206,10 @@
                                                 <ReferenceLine y={0} stroke="#000" />
                                                 <Bar dataKey="newEnrollments" name="入会" fill="#10b981" stackId="stack" />
                                                 <Bar dataKey="transferIns" name="転入" fill="#06B6D4" stackId="stack" />
-                                                {/* returns removed */}
                                                 <Bar dataKey="withdrawals_neg" name="退会" fill="#EF4444" stackId="stack" />
                                                 <Bar dataKey="graduates_neg" name="卒業" fill="#A855F7" stackId="stack" />
                                                 <Bar dataKey="transfers_neg" name="転校" fill="#F97316" stackId="stack" />
-                                                {/* recesses_neg removed */}
+                                                <Bar dataKey="recesses_neg" name="休会" fill="#f59e0b" stackId="stack" />
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
@@ -1260,6 +1242,12 @@
                             {activeTab === 'settings' && (
                                 <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
                                     <h3 className="text-lg font-bold text-gray-800 mb-6">登録済み校舎 ({campusList.length})</h3>
+                                    <div className="flex gap-4 items-end mb-10">
+                                        <div className="flex-1"><label className="block text-sm font-bold text-gray-700 mb-2">ID (英数)</label><input type="text" value={newCampusId} onChange={e=>setNewCampusId(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-blue" placeholder="shibuya"/></div>
+                                        <div className="flex-1"><label className="block text-sm font-bold text-gray-700 mb-2">校舎名</label><input type="text" value={newCampusName} onChange={e=>setNewCampusName(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-blue" placeholder="渋谷校"/></div>
+                                        <button onClick={handleAddCampus} className="bg-brand-blue text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700">登録</button>
+                                    </div>
+
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                         {campusList.map(c=>(
                                             <div key={c.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50 flex justify-between items-center">
