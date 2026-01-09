@@ -756,6 +756,8 @@
             const [selectedHQCampusId, setSelectedHQCampusId] = useState('All');
             const [plViewCategory, setPlViewCategory] = useState('all');
 
+            const [hoveredData, setHoveredData] = useState(null);
+            
             const [modalOpen, setModalOpen] = useState(false);
             const [modalData, setModalData] = useState([]);
             const [modalTitle, setModalTitle] = useState("");
@@ -813,7 +815,6 @@
                 }), { revenue: 0, expense: 0, profit: 0, newEnrollments: 0, transferIns: 0, returns: 0, withdrawals: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0, ad:0, sales:0, labor:0, facility:0, admin:0, hq:0, other:0, partTime:0 });
             }, [displayData]);
 
-            // For Monthly Summary View (Category Breakdown)
             const monthlySummaryData = useMemo(() => {
                 if (viewMode !== 'monthly' || !monthDataForPL) return [];
                 const data = [
@@ -832,13 +833,44 @@
 
             const currentTotalStudents = useMemo(() => {
                 if (viewMode === 'annual' || viewMode === 'half' || viewMode === 'quarter') {
-                    // For aggregate periods, use the last item's student count if available, otherwise 0
-                    // displayData is already an array of periods for half/quarter.
                     return displayData.length > 0 ? displayData[displayData.length - 1].students : 0;
                 }
                 const mData = fullDashboardData.find(m => m.name === selectedMonth);
                 return mData ? mData.students : 0;
             }, [fullDashboardData, viewMode, selectedMonth, displayData]);
+
+            // Interactive View Data (for hovering)
+            const currentViewData = useMemo(() => {
+                if (hoveredData) {
+                    return {
+                        ...hoveredData,
+                        revenue: hoveredData.revenue || 0,
+                        expense: hoveredData.expense || 0,
+                        profit: hoveredData.profit || 0,
+                        newEnrollments: hoveredData.newEnrollments || 0,
+                        withdrawals: hoveredData.withdrawals || 0,
+                        partTime: hoveredData.partTime || 0,
+                        totalStudents: hoveredData.students || 0, 
+                        periodLabel: hoveredData.name
+                    };
+                } else {
+                    return {
+                        ...totals,
+                        totalStudents: currentTotalStudents,
+                        periodLabel: viewLabel === '月度' ? selectedMonth : viewLabel
+                    };
+                }
+            }, [hoveredData, totals, currentTotalStudents, viewLabel, selectedMonth]);
+
+            const handleChartHover = (state) => {
+                if (state && state.activePayload && state.activePayload.length > 0) {
+                    setHoveredData(state.activePayload[0].payload);
+                }
+            };
+        
+            const handleChartLeave = () => {
+                setHoveredData(null);
+            };
 
             const openDetailModal = (categoryKey, monthData) => {
                 if (!monthData || !monthData.detailItems || !monthData.detailItems[categoryKey]) return;
@@ -1022,12 +1054,12 @@
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-                                        <StatCard title="売上" value={formatYen(totals.revenue)} subValue={viewLabel} icon={DollarSign} colorClass="text-brand-blue" />
-                                        <StatCard title="費用" value={formatYen(totals.expense)} subValue={viewLabel} icon={TrendingDown} colorClass="text-rose-500" />
-                                        <StatCard title="営業利益" value={formatYen(totals.profit)} subValue={viewLabel} icon={Activity} colorClass="text-emerald-500" />
-                                        <StatCard title="入会数" value={`${totals.newEnrollments}名`} subValue={viewLabel} icon={Users} colorClass="text-emerald-500" />
-                                        <StatCard title="退会数" value={`${totals.withdrawals}名`} subValue={viewLabel} icon={Users} colorClass="text-rose-500" />
-                                        <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末':'期間末'} icon={TrendingUp} colorClass="text-brand-blue" />
+                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} icon={DollarSign} colorClass="text-brand-blue" />
+                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} icon={TrendingDown} colorClass="text-rose-500" />
+                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} icon={Activity} colorClass="text-emerald-500" />
+                                        <StatCard title="入会数" value={`${currentViewData.newEnrollments}名`} subValue={currentViewData.periodLabel} icon={Users} colorClass="text-emerald-500" />
+                                        <StatCard title="退会数" value={`${currentViewData.withdrawals}名`} subValue={currentViewData.periodLabel} icon={Users} colorClass="text-rose-500" />
+                                        <StatCard title="在籍生徒数" value={`${currentViewData.totalStudents}名`} subValue="期間末" icon={TrendingUp} colorClass="text-brand-blue" />
                                     </div>
                                     
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1047,7 +1079,7 @@
                                                         </Bar>
                                                     </BarChart>
                                                 ) : (
-                                                    <ComposedChart data={displayData}>
+                                                    <ComposedChart data={displayData} onMouseMove={handleChartHover} onMouseLeave={handleChartLeave}>
                                                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                                         <XAxis dataKey="name" interval={0} />
                                                         <YAxis />
@@ -1064,7 +1096,7 @@
                                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-96">
                                             <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Users className="w-5 h-5 mr-2 text-brand-orange"/> 生徒数推移 (増減要因)</h3>
                                             <ResponsiveContainer width="100%" height="90%">
-                                                <BarChart data={displayData} stackOffset="sign">
+                                                <BarChart data={displayData} stackOffset="sign" onMouseMove={handleChartHover} onMouseLeave={handleChartLeave}>
                                                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                                     <XAxis dataKey="name" interval={0} />
                                                     <YAxis />
@@ -1073,9 +1105,11 @@
                                                     <ReferenceLine y={0} stroke="#000" />
                                                     <Bar dataKey="newEnrollments" name="入会" fill="#10B981" stackId="stack" />
                                                     <Bar dataKey="transferIns" name="転入" fill="#06B6D4" stackId="stack" />
+                                                    {/* returns (復会) removed from chart */}
                                                     <Bar dataKey="withdrawals_neg" name="退会" fill="#EF4444" stackId="stack" />
                                                     <Bar dataKey="graduates_neg" name="卒業" fill="#A855F7" stackId="stack" />
                                                     <Bar dataKey="transfers_neg" name="転校" fill="#F97316" stackId="stack" />
+                                                    {/* recesses (休会) removed from chart */}
                                                 </BarChart>
                                             </ResponsiveContainer>
                                         </div>
@@ -1087,11 +1121,11 @@
                             {activeTab === 'pl' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                                        <StatCard title="売上" value={formatYen(totals.revenue)} subValue={viewLabel} icon={DollarSign} colorClass="text-brand-blue" />
-                                        <StatCard title="費用" value={formatYen(totals.expense)} subValue={viewLabel} icon={ArrowRight} colorClass="text-rose-500" />
-                                        <StatCard title="営業利益" value={formatYen(totals.profit)} subValue={viewLabel} icon={Activity} colorClass="text-emerald-500" />
-                                        <StatCard title="アルバイト人件費率" value={`${totals.revenue > 0 ? (totals.partTime / totals.revenue * 100).toFixed(1) : 0}%`} subValue="売上比" icon={TrendingDown} colorClass="text-rose-500" />
-                                        <StatCard title="利益率" value={`${totals.revenue ? ((totals.profit/totals.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" icon={TrendingUp} colorClass="text-brand-orange" />
+                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} icon={DollarSign} colorClass="text-brand-blue" />
+                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} icon={ArrowRight} colorClass="text-rose-500" />
+                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} icon={Activity} colorClass="text-emerald-500" />
+                                        <StatCard title="アルバイト人件費率" value={`${currentViewData.revenue > 0 ? (currentViewData.partTime / currentViewData.revenue * 100).toFixed(1) : 0}%`} subValue="売上比" icon={TrendingDown} colorClass="text-rose-500" />
+                                        <StatCard title="利益率" value={`${currentViewData.revenue ? ((currentViewData.profit/currentViewData.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" icon={TrendingUp} colorClass="text-brand-orange" />
                                     </div>
                                     
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
@@ -1152,7 +1186,7 @@
                                         ) : (
                                             <ResponsiveContainer width="100%" height="90%">
                                                 {plViewCategory === 'all' ? (
-                                                    <ComposedChart data={displayData} stackOffset="sign">
+                                                    <ComposedChart data={displayData} stackOffset="sign" onMouseMove={handleChartHover} onMouseLeave={handleChartLeave}>
                                                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                                         <XAxis dataKey="name" interval={0} />
                                                         <YAxis />
@@ -1206,10 +1240,11 @@
                                                 <ReferenceLine y={0} stroke="#000" />
                                                 <Bar dataKey="newEnrollments" name="入会" fill="#10b981" stackId="stack" />
                                                 <Bar dataKey="transferIns" name="転入" fill="#06B6D4" stackId="stack" />
+                                                {/* returns removed */}
                                                 <Bar dataKey="withdrawals_neg" name="退会" fill="#EF4444" stackId="stack" />
                                                 <Bar dataKey="graduates_neg" name="卒業" fill="#A855F7" stackId="stack" />
                                                 <Bar dataKey="transfers_neg" name="転校" fill="#F97316" stackId="stack" />
-                                                <Bar dataKey="recesses_neg" name="休会" fill="#f59e0b" stackId="stack" />
+                                                {/* recesses_neg removed */}
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
