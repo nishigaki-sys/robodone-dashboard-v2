@@ -350,6 +350,9 @@
                                 - (sumDaily('withdrawals') + -sumDaily('graduates_neg') + -sumDaily('transfers_neg'));
                 currentStudents += netChange;
 
+                // Fix: Ensure expenseTotal is mapped to 'expense' for charts
+                const expense = currentFin.expenseTotal;
+
                 return {
                     name: monthName,
                     students: currentStudents,
@@ -368,10 +371,8 @@
                     eventApp: sumDaily('eventApp'),
                     eventExec: sumDaily('eventExec'),
 
-                    // Use aggregated financials directly
                     ...currentFin,
-                    revenue: currentFin.revenue, // Explicitly set
-                    expense: currentFin.expenseTotal, // Explicitly set
+                    expense, // Unified key
                     profit: currentFin.revenue - currentFin.expenseTotal,
                     detailItems: currentFin.details,
 
@@ -388,14 +389,13 @@
                     prevOther: prevFin.other,
                     
                     daily: dailyData,
-                    weekly: weeklyData,
                 };
             });
 
             return monthlyStats;
         };
 
-        // Aggregation Utility for Half/Quarter
+        // Aggregation Utility
         const aggregatePeriod = (monthlyData, periodType) => {
             if (periodType === 'annual') return monthlyData;
             
@@ -426,7 +426,6 @@
                         if (curr[k] !== undefined) acc[k] = (acc[k] || 0) + curr[k];
                     });
                     
-                    // Detail items aggregation
                     if (curr.detailItems) {
                         Object.keys(curr.detailItems).forEach(cat => {
                             if (!acc.detailItems[cat]) acc.detailItems[cat] = [];
@@ -440,12 +439,10 @@
                     return acc;
                 }, { name: g.name, detailItems: {} });
                 
-                // Students should take the last month's value
                 if (targets.length > 0) {
                     agg.students = targets[targets.length - 1].students;
                 }
                 
-                // Sort details
                 Object.keys(agg.detailItems).forEach(k => agg.detailItems[k].sort((a,b) => b.value - a.value));
                 
                 return agg;
@@ -794,6 +791,34 @@
             }, [fullDashboardData, selectedMonth]);
 
             const totals = useMemo(() => {
+                // Monthly view: use pre-aggregated month data directly
+                if (viewMode === 'monthly' && monthDataForPL) {
+                    return {
+                        revenue: monthDataForPL.revenue,
+                        expense: monthDataForPL.expense, // Corrected key (was expenseTotal in previous buggy version, but unified to expense now)
+                        profit: monthDataForPL.profit,
+                        newEnrollments: monthDataForPL.newEnrollments,
+                        transferIns: monthDataForPL.transferIns,
+                        returns: monthDataForPL.returns,
+                        withdrawals: monthDataForPL.withdrawals,
+                        graduates: Math.abs(monthDataForPL.graduates_neg || 0),
+                        transfers: Math.abs(monthDataForPL.transfers_neg || 0),
+                        flyers: monthDataForPL.flyers,
+                        trialApp: monthDataForPL.trialApp,
+                        trialExec: monthDataForPL.trialExec,
+                        ad: monthDataForPL.ad,
+                        sales: monthDataForPL.sales,
+                        labor: monthDataForPL.labor,
+                        facility: monthDataForPL.facility,
+                        admin: monthDataForPL.admin,
+                        hq: monthDataForPL.hq,
+                        other: monthDataForPL.other,
+                        partTime: monthDataForPL.partTime || 0,
+                        students: monthDataForPL.students
+                    };
+                }
+
+                // For annual/quarter/half, sum up
                 return displayData.reduce((acc, curr) => ({
                     revenue: acc.revenue + (curr.revenue || 0),
                     expense: acc.expense + (curr.expense || 0),
@@ -816,7 +841,7 @@
                     other: acc.other + (curr.other || 0),
                     partTime: acc.partTime + (curr.partTime || 0)
                 }), { revenue: 0, expense: 0, profit: 0, newEnrollments: 0, transferIns: 0, returns: 0, withdrawals: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0, ad:0, sales:0, labor:0, facility:0, admin:0, hq:0, other:0, partTime:0 });
-            }, [displayData]);
+            }, [displayData, viewMode, monthDataForPL]);
 
             // For Monthly Summary View (Category Breakdown)
             const monthlySummaryData = useMemo(() => {
@@ -836,12 +861,13 @@
             }, [monthDataForPL, viewMode]);
 
             const currentTotalStudents = useMemo(() => {
+                if (viewMode === 'monthly') return monthDataForPL ? monthDataForPL.students : 0;
                 if (viewMode === 'annual' || viewMode === 'half' || viewMode === 'quarter') {
                     return displayData.length > 0 ? displayData[displayData.length - 1].students : 0;
                 }
                 const mData = fullDashboardData.find(m => m.name === selectedMonth);
                 return mData ? mData.students : 0;
-            }, [fullDashboardData, viewMode, selectedMonth, displayData]);
+            }, [fullDashboardData, viewMode, selectedMonth, displayData, monthDataForPL]);
 
             // Interactive View Data (for hovering)
             const currentViewData = useMemo(() => {
@@ -1384,6 +1410,7 @@
                 } catch(e) { showNotify("エラー: " + e.message, 'error'); }
             };
 
+            // ... (handlePlanChange, handleSavePlan, handleCsvUpload same as before) ...
             const handlePlanChange = (month, field, value) => {
                 setPlanData(prev => {
                     const newData = { ...prev };
@@ -1409,6 +1436,7 @@
             };
 
             const handleCsvUpload = async (parsedData) => {
+                // ... (CSV upload logic omitted for brevity, same as previous) ...
                 if (!campus) return;
                 setUploading(true);
                 try {
