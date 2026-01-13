@@ -368,7 +368,10 @@
                     eventApp: sumDaily('eventApp'),
                     eventExec: sumDaily('eventExec'),
 
+                    // Use aggregated financials directly
                     ...currentFin,
+                    revenue: currentFin.revenue, // Explicitly set
+                    expense: currentFin.expenseTotal, // Explicitly set
                     profit: currentFin.revenue - currentFin.expenseTotal,
                     detailItems: currentFin.details,
 
@@ -815,6 +818,7 @@
                 }), { revenue: 0, expense: 0, profit: 0, newEnrollments: 0, transferIns: 0, returns: 0, withdrawals: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0, ad:0, sales:0, labor:0, facility:0, admin:0, hq:0, other:0, partTime:0 });
             }, [displayData]);
 
+            // For Monthly Summary View (Category Breakdown)
             const monthlySummaryData = useMemo(() => {
                 if (viewMode !== 'monthly' || !monthDataForPL) return [];
                 const data = [
