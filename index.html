@@ -1140,7 +1140,7 @@
                             {activeTab === 'pl' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/1E51A2/FFFFFF/png?text=$" colorClass="text-brand-blue" />
+                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg?text=$" colorClass="text-brand-blue" />
                                         <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=-" colorClass="text-rose-500" />
                                         <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/10B981/FFFFFF/png?text=P" colorClass="text-emerald-500" />
                                         <StatCard title="アルバイト人件費率" value={`${currentViewData.revenue > 0 ? (currentViewData.partTime / currentViewData.revenue * 100).toFixed(1) : 0}%`} subValue="売上比" iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=Pt" colorClass="text-rose-500" />
