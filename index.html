@@ -286,6 +286,21 @@
                 const currentFin = aggFinancials(mFinancials);
                 const prevFin = aggFinancials(mFinancialsPrev);
 
+                // --- 前年の入退会数の集計 ---
+                const filterPrevMonth = (list, typeFilter=null, dateKey='date') => list.filter(item => {
+                    if (!isTargetCampus(item)) return false;
+                    let d = parseDate(item[dateKey]);
+                    if (!d && typeof item[dateKey] === 'string') d = new Date(item[dateKey]);
+                    if (!d) return false;
+                    const iYear = d.getFullYear();
+                    const iMonth = d.getMonth() + 1;
+                    return iYear === tYearPrev && iMonth === (tMonth + 1) && (!typeFilter || item.type?.includes(typeFilter));
+                }).length;
+
+                const prevNewEnrollments = filterPrevMonth(enrollments);
+                const prevWithdrawals = filterPrevMonth(statusChanges, "退会");
+                // --------------------------
+
                 const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
                     const day = i + 1;
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
@@ -382,6 +397,10 @@
                     prevHq: prevFin.hq,
                     prevOther: prevFin.other,
                     
+                    // 前年の入退会数
+                    prevNewEnrollments: prevNewEnrollments,
+                    prevWithdrawals: prevWithdrawals,
+                    
                     daily: dailyData,
                 };
             });
@@ -413,7 +432,10 @@
                     const keys = [
                         'revenue','expense','profit','ad','sales','labor','facility','admin','hq','other','partTime',
                         'newEnrollments','transferIns','returns','withdrawals','graduates_neg','transfers_neg','recesses_neg','flyers','trialApp','eventApp','trialExec','eventExec',
-                        'withdrawals_neg', 'transfers_neg', 'graduates_neg', 'recesses_neg'
+                        'withdrawals_neg', 'transfers_neg', 'graduates_neg', 'recesses_neg',
+                        // 前年集計キーを追加
+                        'prevRevenue', 'prevExpense', 'prevProfit', 'prevAd', 'prevSales', 'prevLabor', 'prevFacility', 'prevAdmin', 'prevHq', 'prevOther',
+                        'prevNewEnrollments', 'prevWithdrawals'
                     ];
                     keys.forEach(k => {
                         if (curr[k] !== undefined) acc[k] = (acc[k] || 0) + curr[k];
@@ -434,6 +456,7 @@
                 
                 if (targets.length > 0) {
                     agg.students = targets[targets.length - 1].students;
+                    // 生徒数（在庫）の前年はフロー集計できないため、ここでは割愛（またはロジック追加が必要）
                 }
                 
                 Object.keys(agg.detailItems).forEach(k => agg.detailItems[k].sort((a,b) => b.value - a.value));
@@ -457,10 +480,9 @@
             );
         };
 
-        const StatCard = ({ title, value, subValue, iconUrl, colorClass, details }) => (
+        const StatCard = ({ title, value, subValue, iconUrl, colorClass, details, yoy }) => (
             <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-l-transparent hover:border-l-brand-orange transition-all duration-200 group h-full">
                 <div className="flex flex-col items-start">
-                    {/* 変更: アイコンをタイトルの右隣に配置 */}
                     <div className="flex items-center gap-2 mb-1">
                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{title}</p>
                         {iconUrl && (
@@ -468,6 +490,15 @@
                         )}
                     </div>
                     <h3 className="text-2xl font-bold text-gray-800 group-hover:text-brand-blue transition-colors">{value}</h3>
+                    {/* 前年比表示の追加 */}
+                    {yoy && (
+                        <div className="flex items-center mt-1 gap-1">
+                             <span className="text-xs font-medium text-gray-400">前年比</span>
+                             <span className={`text-sm font-bold ${Number(yoy) >= 100 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                {yoy}%
+                             </span>
+                        </div>
+                    )}
                 </div>
                 {subValue && <div className="mt-4 flex items-center text-sm"><span className="text-gray-400 font-medium">{subValue}</span></div>}
                 {details && (
@@ -787,52 +818,46 @@
             const totals = useMemo(() => {
                 if (viewMode === 'monthly' && monthDataForPL) {
                     return {
-                        revenue: monthDataForPL.revenue,
-                        expense: monthDataForPL.expense,
-                        profit: monthDataForPL.profit,
-                        newEnrollments: monthDataForPL.newEnrollments,
+                        revenue: monthDataForPL.revenue, prevRevenue: monthDataForPL.prevRevenue,
+                        expense: monthDataForPL.expense, prevExpense: monthDataForPL.prevExpense,
+                        profit: monthDataForPL.profit, prevProfit: monthDataForPL.prevProfit,
+                        newEnrollments: monthDataForPL.newEnrollments, prevNewEnrollments: monthDataForPL.prevNewEnrollments,
+                        withdrawals: monthDataForPL.withdrawals, prevWithdrawals: monthDataForPL.prevWithdrawals,
                         transferIns: monthDataForPL.transferIns,
                         returns: monthDataForPL.returns,
-                        withdrawals: monthDataForPL.withdrawals,
                         graduates: Math.abs(monthDataForPL.graduates_neg || 0),
                         transfers: Math.abs(monthDataForPL.transfers_neg || 0),
                         flyers: monthDataForPL.flyers,
                         trialApp: monthDataForPL.trialApp,
                         trialExec: monthDataForPL.trialExec,
-                        ad: monthDataForPL.ad,
-                        sales: monthDataForPL.sales,
-                        labor: monthDataForPL.labor,
-                        facility: monthDataForPL.facility,
-                        admin: monthDataForPL.admin,
-                        hq: monthDataForPL.hq,
-                        other: monthDataForPL.other,
                         partTime: monthDataForPL.partTime || 0,
                         students: monthDataForPL.students
                     };
                 }
 
                 return displayData.reduce((acc, curr) => ({
-                    revenue: acc.revenue + (curr.revenue || 0),
-                    expense: acc.expense + (curr.expense || 0),
-                    profit: acc.profit + (curr.profit || 0),
-                    newEnrollments: acc.newEnrollments + (curr.newEnrollments || 0),
+                    revenue: acc.revenue + (curr.revenue || 0), prevRevenue: acc.prevRevenue + (curr.prevRevenue || 0),
+                    expense: acc.expense + (curr.expense || 0), prevExpense: acc.prevExpense + (curr.prevExpense || 0),
+                    profit: acc.profit + (curr.profit || 0), prevProfit: acc.prevProfit + (curr.prevProfit || 0),
+                    newEnrollments: acc.newEnrollments + (curr.newEnrollments || 0), prevNewEnrollments: acc.prevNewEnrollments + (curr.prevNewEnrollments || 0),
+                    withdrawals: acc.withdrawals + (curr.withdrawals || 0), prevWithdrawals: acc.prevWithdrawals + (curr.prevWithdrawals || 0),
+                    
                     transferIns: acc.transferIns + (curr.transferIns || 0),
                     returns: acc.returns + (curr.returns || 0),
-                    withdrawals: acc.withdrawals + (curr.withdrawals || 0),
                     graduates: acc.graduates + Math.abs(curr.graduates_neg || 0),
                     transfers: acc.transfers + Math.abs(curr.transfers_neg || 0),
                     flyers: acc.flyers + (curr.flyers || 0),
                     trialApp: acc.trialApp + (curr.trialApp || 0),
                     trialExec: acc.trialExec + (curr.trialExec || 0),
-                    ad: acc.ad + (curr.ad || 0),
-                    sales: acc.sales + (curr.sales || 0),
-                    labor: acc.labor + (curr.labor || 0),
-                    facility: acc.facility + (curr.facility || 0),
-                    admin: acc.admin + (curr.admin || 0),
-                    hq: acc.hq + (curr.hq || 0),
-                    other: acc.other + (curr.other || 0),
                     partTime: acc.partTime + (curr.partTime || 0)
-                }), { revenue: 0, expense: 0, profit: 0, newEnrollments: 0, transferIns: 0, returns: 0, withdrawals: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0, ad:0, sales:0, labor:0, facility:0, admin:0, hq:0, other:0, partTime:0 });
+                }), { 
+                    revenue: 0, prevRevenue: 0, 
+                    expense: 0, prevExpense: 0, 
+                    profit: 0, prevProfit: 0, 
+                    newEnrollments: 0, prevNewEnrollments: 0, 
+                    withdrawals: 0, prevWithdrawals: 0,
+                    transferIns: 0, returns: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0, partTime: 0 
+                });
             }, [displayData, viewMode, monthDataForPL]);
 
             const monthlySummaryData = useMemo(() => {
@@ -864,11 +889,12 @@
                 if (hoveredData) {
                     return {
                         ...hoveredData,
-                        revenue: hoveredData.revenue || 0,
-                        expense: hoveredData.expense || 0,
-                        profit: hoveredData.profit || 0,
-                        newEnrollments: hoveredData.newEnrollments || 0,
-                        withdrawals: hoveredData.withdrawals || 0,
+                        revenue: hoveredData.revenue || 0, prevRevenue: hoveredData.prevRevenue,
+                        expense: hoveredData.expense || 0, prevExpense: hoveredData.prevExpense,
+                        profit: hoveredData.profit || 0, prevProfit: hoveredData.prevProfit,
+                        newEnrollments: hoveredData.newEnrollments || 0, prevNewEnrollments: hoveredData.prevNewEnrollments,
+                        withdrawals: hoveredData.withdrawals || 0, prevWithdrawals: hoveredData.prevWithdrawals,
+                        
                         partTime: hoveredData.partTime || 0,
                         totalStudents: hoveredData.students || 0, 
                         periodLabel: hoveredData.name
@@ -881,6 +907,11 @@
                     };
                 }
             }, [hoveredData, totals, currentTotalStudents, viewLabel, selectedMonth]);
+
+            const calcYoY = (curr, prev) => {
+                if (!prev || prev === 0) return null;
+                return ((curr / prev) * 100).toFixed(1);
+            };
 
             const handleChartHover = (state) => {
                 if (state && state.activePayload && state.activePayload.length > 0) {
@@ -1076,6 +1107,7 @@
                                             title="売上" 
                                             value={formatYen(currentViewData.revenue)} 
                                             subValue={currentViewData.periodLabel} 
+                                            yoy={calcYoY(currentViewData.revenue, currentViewData.prevRevenue)}
                                             iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg" 
                                             colorClass="text-brand-blue" 
                                         />
@@ -1083,6 +1115,7 @@
                                             title="費用" 
                                             value={formatYen(currentViewData.expense)} 
                                             subValue={currentViewData.periodLabel} 
+                                            yoy={calcYoY(currentViewData.expense, currentViewData.prevExpense)}
                                             iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_72e22ba6-81fa-4b3e-abf5-23d886ad1dea.svg" 
                                             colorClass="text-rose-500" 
                                         />
@@ -1090,6 +1123,7 @@
                                             title="営業利益" 
                                             value={formatYen(currentViewData.profit)} 
                                             subValue={currentViewData.periodLabel} 
+                                            yoy={calcYoY(currentViewData.profit, currentViewData.prevProfit)}
                                             iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_33bb072f-fe8f-4a20-8e5a-0bc5f53bde3d.svg" 
                                             colorClass="text-emerald-500" 
                                         />
@@ -1097,6 +1131,7 @@
                                             title="入会数" 
                                             value={`${currentViewData.newEnrollments}名`} 
                                             subValue={currentViewData.periodLabel} 
+                                            yoy={calcYoY(currentViewData.newEnrollments, currentViewData.prevNewEnrollments)}
                                             iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_c7c5b948-913f-4f31-903b-c8a91774107f.svg" 
                                             colorClass="text-emerald-500" 
                                         />
@@ -1104,6 +1139,7 @@
                                             title="退会数" 
                                             value={`${currentViewData.withdrawals}名`} 
                                             subValue={currentViewData.periodLabel} 
+                                            yoy={calcYoY(currentViewData.withdrawals, currentViewData.prevWithdrawals)}
                                             iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_28d76d55-88ab-48e9-b098-dc838ba040c2.svg" 
                                             colorClass="text-rose-500" 
                                         />
@@ -1177,6 +1213,7 @@
                                             title="売上" 
                                             value={formatYen(currentViewData.revenue)} 
                                             subValue={currentViewData.periodLabel} 
+                                            yoy={calcYoY(currentViewData.revenue, currentViewData.prevRevenue)}
                                             iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg" 
                                             colorClass="text-brand-blue" 
                                         />
@@ -1184,6 +1221,7 @@
                                             title="費用" 
                                             value={formatYen(currentViewData.expense)} 
                                             subValue={currentViewData.periodLabel} 
+                                            yoy={calcYoY(currentViewData.expense, currentViewData.prevExpense)}
                                             iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_72e22ba6-81fa-4b3e-abf5-23d886ad1dea.svg" 
                                             colorClass="text-rose-500" 
                                         />
@@ -1191,6 +1229,7 @@
                                             title="営業利益" 
                                             value={formatYen(currentViewData.profit)} 
                                             subValue={currentViewData.periodLabel} 
+                                            yoy={calcYoY(currentViewData.profit, currentViewData.prevProfit)}
                                             iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_33bb072f-fe8f-4a20-8e5a-0bc5f53bde3d.svg" 
                                             colorClass="text-emerald-500" 
                                         />
