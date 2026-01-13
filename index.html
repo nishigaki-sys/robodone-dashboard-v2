@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Robot School Dashboard V3</title>
     
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -24,10 +23,8 @@
         }
     </script>
 
-    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Import Map -->
     <script type="importmap">
     {
         "imports": {
@@ -239,7 +236,6 @@
             const prevWithdraw = countBefore(statusChanges, "退会");
             const prevGrad = countBefore(statusChanges, "卒業");
             const prevTransferOut = countBefore(statusChanges, "転校");
-            // 休会と復会は計算に含めない (プラスマイナス0)
             baseStudentCount = (prevEnroll + prevTransferIn) - (prevWithdraw + prevGrad + prevTransferOut);
 
             let currentStudents = baseStudentCount;
@@ -274,7 +270,6 @@
                             agg.expenseTotal += f.amount;
                         }
 
-                        // Calculate Part-time Labor (Starts with 6320)
                         if (String(f.accountCode).startsWith('6320')) {
                             agg.partTime += f.amount;
                         }
@@ -350,7 +345,6 @@
                                 - (sumDaily('withdrawals') + -sumDaily('graduates_neg') + -sumDaily('transfers_neg'));
                 currentStudents += netChange;
 
-                // Fix: Ensure expenseTotal is mapped to 'expense' for charts
                 const expense = currentFin.expenseTotal;
 
                 return {
@@ -372,7 +366,7 @@
                     eventExec: sumDaily('eventExec'),
 
                     ...currentFin,
-                    expense, // Unified key
+                    expense,
                     profit: currentFin.revenue - currentFin.expenseTotal,
                     detailItems: currentFin.details,
 
@@ -395,7 +389,6 @@
             return monthlyStats;
         };
 
-        // Aggregation Utility
         const aggregatePeriod = (monthlyData, periodType) => {
             if (periodType === 'annual') return monthlyData;
             
@@ -464,16 +457,20 @@
             );
         };
 
-        const StatCard = ({ title, value, subValue, icon: Icon, colorClass, details }) => (
+        // -----------------------------------------------------
+        // 修正: StatCard - アイコンを画像URL対応 & レイアウト変更
+        // -----------------------------------------------------
+        const StatCard = ({ title, value, subValue, iconUrl, colorClass, details }) => (
             <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-l-transparent hover:border-l-brand-orange transition-all duration-200 group h-full">
-                <div className="flex justify-between items-start">
-                    <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{title}</p>
-                        <h3 className="text-2xl font-bold text-gray-800 group-hover:text-brand-blue transition-colors">{value}</h3>
+                <div className="flex flex-col items-start">
+                    {/* タイトルとアイコンを横並びに配置 */}
+                    <div className="flex items-center gap-2 mb-1">
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{title}</p>
+                        {iconUrl && (
+                            <img src={iconUrl} alt={title} className="w-5 h-5 object-contain" />
+                        )}
                     </div>
-                    <div className={`p-3 rounded-full bg-gray-50 group-hover:bg-brand-blue/10 transition-colors`}>
-                        <Icon className={`w-6 h-6 ${colorClass || 'text-brand-blue'}`} />
-                    </div>
+                    <h3 className="text-2xl font-bold text-gray-800 group-hover:text-brand-blue transition-colors">{value}</h3>
                 </div>
                 {subValue && <div className="mt-4 flex items-center text-sm"><span className="text-gray-400 font-medium">{subValue}</span></div>}
                 {details && (
@@ -791,11 +788,10 @@
             }, [fullDashboardData, selectedMonth]);
 
             const totals = useMemo(() => {
-                // Monthly view: use pre-aggregated month data directly
                 if (viewMode === 'monthly' && monthDataForPL) {
                     return {
                         revenue: monthDataForPL.revenue,
-                        expense: monthDataForPL.expense, // Corrected key (was expenseTotal in previous buggy version, but unified to expense now)
+                        expense: monthDataForPL.expense,
                         profit: monthDataForPL.profit,
                         newEnrollments: monthDataForPL.newEnrollments,
                         transferIns: monthDataForPL.transferIns,
@@ -818,7 +814,6 @@
                     };
                 }
 
-                // For annual/quarter/half, sum up
                 return displayData.reduce((acc, curr) => ({
                     revenue: acc.revenue + (curr.revenue || 0),
                     expense: acc.expense + (curr.expense || 0),
@@ -843,7 +838,6 @@
                 }), { revenue: 0, expense: 0, profit: 0, newEnrollments: 0, transferIns: 0, returns: 0, withdrawals: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0, ad:0, sales:0, labor:0, facility:0, admin:0, hq:0, other:0, partTime:0 });
             }, [displayData, viewMode, monthDataForPL]);
 
-            // For Monthly Summary View (Category Breakdown)
             const monthlySummaryData = useMemo(() => {
                 if (viewMode !== 'monthly' || !monthDataForPL) return [];
                 const data = [
@@ -869,7 +863,6 @@
                 return mData ? mData.students : 0;
             }, [fullDashboardData, viewMode, selectedMonth, displayData, monthDataForPL]);
 
-            // Interactive View Data (for hovering)
             const currentViewData = useMemo(() => {
                 if (hoveredData) {
                     return {
@@ -957,7 +950,6 @@
                 }
             };
 
-            // Custom Tick for Weekly XAxis
             const WeeklyAxisTick = ({ x, y, payload }) => {
                 const item = displayData.find(d => d.name === payload.value);
                 return (
@@ -1000,7 +992,6 @@
                 <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
                     <DetailModal isOpen={modalOpen} onClose={()=>setModalOpen(false)} data={modalData} title={modalTitle} color={modalColor} />
                     
-                    {/* Campus Edit Modal */}
                     {editModalOpen && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay backdrop-blur-sm transition-opacity" onClick={() => setEditModalOpen(false)}>
                             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -1080,16 +1071,16 @@
                             </div>
                         </header>
                         <div className="p-8 max-w-7xl mx-auto">
-                            {/* Dashboard (Summary) View */}
+                            {/* Dashboard (Summary) View - StatCard Update */}
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} icon={DollarSign} colorClass="text-brand-blue" />
-                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} icon={TrendingDown} colorClass="text-rose-500" />
-                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} icon={Activity} colorClass="text-emerald-500" />
-                                        <StatCard title="入会数" value={`${currentViewData.newEnrollments}名`} subValue={currentViewData.periodLabel} icon={Users} colorClass="text-emerald-500" />
-                                        <StatCard title="退会数" value={`${currentViewData.withdrawals}名`} subValue={currentViewData.periodLabel} icon={Users} colorClass="text-rose-500" />
-                                        <StatCard title="在籍生徒数" value={`${currentViewData.totalStudents}名`} subValue="期間末" icon={TrendingUp} colorClass="text-brand-blue" />
+                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/1E51A2/FFFFFF/png?text=$" colorClass="text-brand-blue" />
+                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=-" colorClass="text-rose-500" />
+                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/10B981/FFFFFF/png?text=P" colorClass="text-emerald-500" />
+                                        <StatCard title="入会数" value={`${currentViewData.newEnrollments}名`} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/10B981/FFFFFF/png?text=In" colorClass="text-emerald-500" />
+                                        <StatCard title="退会数" value={`${currentViewData.withdrawals}名`} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=Out" colorClass="text-rose-500" />
+                                        <StatCard title="在籍生徒数" value={`${currentViewData.totalStudents}名`} subValue="期間末" iconUrl="https://placehold.co/40x40/1E51A2/FFFFFF/png?text=Stu" colorClass="text-brand-blue" />
                                     </div>
                                     
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1135,11 +1126,9 @@
                                                     <ReferenceLine y={0} stroke="#000" />
                                                     <Bar dataKey="newEnrollments" name="入会" fill="#10B981" stackId="stack" />
                                                     <Bar dataKey="transferIns" name="転入" fill="#06B6D4" stackId="stack" />
-                                                    {/* returns (復会) removed from chart */}
                                                     <Bar dataKey="withdrawals_neg" name="退会" fill="#EF4444" stackId="stack" />
                                                     <Bar dataKey="graduates_neg" name="卒業" fill="#A855F7" stackId="stack" />
                                                     <Bar dataKey="transfers_neg" name="転校" fill="#F97316" stackId="stack" />
-                                                    {/* recesses (休会) removed from chart */}
                                                 </BarChart>
                                             </ResponsiveContainer>
                                         </div>
@@ -1147,15 +1136,15 @@
                                 </div>
                             )}
 
-                            {/* PL (Detail) View */}
+                            {/* PL (Detail) View - StatCard Update */}
                             {activeTab === 'pl' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} icon={DollarSign} colorClass="text-brand-blue" />
-                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} icon={ArrowRight} colorClass="text-rose-500" />
-                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} icon={Activity} colorClass="text-emerald-500" />
-                                        <StatCard title="アルバイト人件費率" value={`${currentViewData.revenue > 0 ? (currentViewData.partTime / currentViewData.revenue * 100).toFixed(1) : 0}%`} subValue="売上比" icon={TrendingDown} colorClass="text-rose-500" />
-                                        <StatCard title="利益率" value={`${currentViewData.revenue ? ((currentViewData.profit/currentViewData.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" icon={TrendingUp} colorClass="text-brand-orange" />
+                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/1E51A2/FFFFFF/png?text=$" colorClass="text-brand-blue" />
+                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=-" colorClass="text-rose-500" />
+                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/10B981/FFFFFF/png?text=P" colorClass="text-emerald-500" />
+                                        <StatCard title="アルバイト人件費率" value={`${currentViewData.revenue > 0 ? (currentViewData.partTime / currentViewData.revenue * 100).toFixed(1) : 0}%`} subValue="売上比" iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=Pt" colorClass="text-rose-500" />
+                                        <StatCard title="利益率" value={`${currentViewData.revenue ? ((currentViewData.profit/currentViewData.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" iconUrl="https://placehold.co/40x40/F3981E/FFFFFF/png?text=%" colorClass="text-brand-orange" />
                                     </div>
                                     
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
@@ -1250,13 +1239,13 @@
                                 </div>
                             )}
                             
-                            {/* Students View */}
+                            {/* Students View - StatCard Update */}
                             {activeTab === 'students' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                        <StatCard title="期間内増加" value={`${totals.newEnrollments + totals.transferIns}名`} subValue="入会+転入" icon={Users} colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}]} />
-                                        <StatCard title="期間内減少" value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} subValue="退会+転校+卒業" icon={Users} colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} />
-                                        <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末':'月末'} icon={TrendingUp} colorClass="text-brand-blue" />
+                                        <StatCard title="期間内増加" value={`${totals.newEnrollments + totals.transferIns}名`} subValue="入会+転入" iconUrl="https://placehold.co/40x40/10B981/FFFFFF/png?text=+" colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}]} />
+                                        <StatCard title="期間内減少" value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} subValue="退会+転校+卒業" iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=-" colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} />
+                                        <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末':'月末'} iconUrl="https://placehold.co/40x40/1E51A2/FFFFFF/png?text=Stu" colorClass="text-brand-blue" />
                                     </div>
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
                                         <h3 className="text-lg font-bold text-gray-800 mb-6">生徒数増減詳細</h3>
@@ -1270,11 +1259,9 @@
                                                 <ReferenceLine y={0} stroke="#000" />
                                                 <Bar dataKey="newEnrollments" name="入会" fill="#10b981" stackId="stack" />
                                                 <Bar dataKey="transferIns" name="転入" fill="#06B6D4" stackId="stack" />
-                                                {/* returns removed */}
                                                 <Bar dataKey="withdrawals_neg" name="退会" fill="#EF4444" stackId="stack" />
                                                 <Bar dataKey="graduates_neg" name="卒業" fill="#A855F7" stackId="stack" />
                                                 <Bar dataKey="transfers_neg" name="転校" fill="#F97316" stackId="stack" />
-                                                {/* recesses_neg removed */}
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
@@ -1345,7 +1332,6 @@
             const [isSavingPlan, setIsSavingPlan] = useState(false);
             const [uploadTargetYear, setUploadTargetYear] = useState(selectedYear);
             
-            // Modal State for Daily Report
             const [isInputModalOpen, setIsInputModalOpen] = useState(false);
 
             const lastUploadInfo = useMemo(() => {
@@ -1354,7 +1340,6 @@
                 return update ? parseDate(update.updatedAt) : null;
             }, [campus, allData.financialUpdates, uploadTargetYear]);
 
-            // ... (Fetch Plan logic) ...
             useEffect(() => {
                 if (activeTab === 'plan' && campus) {
                     const fetchPlan = async () => {
@@ -1375,7 +1360,6 @@
                 }, {});
             };
 
-            // Update input form when reportDate changes
             useEffect(() => {
                 if (!campus) return;
                 const existing = allData.dailyReports.find(r => r.campusId === campus.id && r.date === reportDate);
@@ -1410,7 +1394,6 @@
                 } catch(e) { showNotify("エラー: " + e.message, 'error'); }
             };
 
-            // ... (handlePlanChange, handleSavePlan, handleCsvUpload same as before) ...
             const handlePlanChange = (month, field, value) => {
                 setPlanData(prev => {
                     const newData = { ...prev };
@@ -1436,7 +1419,6 @@
             };
 
             const handleCsvUpload = async (parsedData) => {
-                // ... (CSV upload logic omitted for brevity, same as previous) ...
                 if (!campus) return;
                 setUploading(true);
                 try {
