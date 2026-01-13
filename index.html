@@ -457,13 +457,10 @@
             );
         };
 
-        // -----------------------------------------------------
-        // 修正: StatCard - アイコンを画像URL対応 & レイアウト変更
-        // -----------------------------------------------------
         const StatCard = ({ title, value, subValue, iconUrl, colorClass, details }) => (
             <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-l-transparent hover:border-l-brand-orange transition-all duration-200 group h-full">
                 <div className="flex flex-col items-start">
-                    {/* タイトルとアイコンを横並びに配置 */}
+                    {/* 変更: アイコンをタイトルの右隣に配置 */}
                     <div className="flex items-center gap-2 mb-1">
                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{title}</p>
                         {iconUrl && (
@@ -1071,16 +1068,52 @@
                             </div>
                         </header>
                         <div className="p-8 max-w-7xl mx-auto">
-                            {/* Dashboard (Summary) View - StatCard Update */}
+                            {/* Dashboard (Summary) View - StatCard Update with Custom Icon URLs */}
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg?text=$" colorClass="text-brand-blue" />
-                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=-" colorClass="text-rose-500" />
-                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/10B981/FFFFFF/png?text=P" colorClass="text-emerald-500" />
-                                        <StatCard title="入会数" value={`${currentViewData.newEnrollments}名`} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/10B981/FFFFFF/png?text=In" colorClass="text-emerald-500" />
-                                        <StatCard title="退会数" value={`${currentViewData.withdrawals}名`} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=Out" colorClass="text-rose-500" />
-                                        <StatCard title="在籍生徒数" value={`${currentViewData.totalStudents}名`} subValue="期間末" iconUrl="https://placehold.co/40x40/1E51A2/FFFFFF/png?text=Stu" colorClass="text-brand-blue" />
+                                        <StatCard 
+                                            title="売上" 
+                                            value={formatYen(currentViewData.revenue)} 
+                                            subValue={currentViewData.periodLabel} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg" 
+                                            colorClass="text-brand-blue" 
+                                        />
+                                        <StatCard 
+                                            title="費用" 
+                                            value={formatYen(currentViewData.expense)} 
+                                            subValue={currentViewData.periodLabel} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_72e22ba6-81fa-4b3e-abf5-23d886ad1dea.svg" 
+                                            colorClass="text-rose-500" 
+                                        />
+                                        <StatCard 
+                                            title="営業利益" 
+                                            value={formatYen(currentViewData.profit)} 
+                                            subValue={currentViewData.periodLabel} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_33bb072f-fe8f-4a20-8e5a-0bc5f53bde3d.svg" 
+                                            colorClass="text-emerald-500" 
+                                        />
+                                        <StatCard 
+                                            title="入会数" 
+                                            value={`${currentViewData.newEnrollments}名`} 
+                                            subValue={currentViewData.periodLabel} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_c7c5b948-913f-4f31-903b-c8a91774107f.svg" 
+                                            colorClass="text-emerald-500" 
+                                        />
+                                        <StatCard 
+                                            title="退会数" 
+                                            value={`${currentViewData.withdrawals}名`} 
+                                            subValue={currentViewData.periodLabel} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_28d76d55-88ab-48e9-b098-dc838ba040c2.svg" 
+                                            colorClass="text-rose-500" 
+                                        />
+                                        <StatCard 
+                                            title="在籍生徒数" 
+                                            value={`${currentViewData.totalStudents}名`} 
+                                            subValue="期間末" 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_cd586213-916c-4b50-b0c3-deb64e7fdd8a.svg" 
+                                            colorClass="text-brand-blue" 
+                                        />
                                     </div>
                                     
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1136,15 +1169,45 @@
                                 </div>
                             )}
 
-                            {/* PL (Detail) View - StatCard Update */}
+                            {/* PL (Detail) View - StatCard Update with Custom Icon URLs */}
                             {activeTab === 'pl' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg?text=$" colorClass="text-brand-blue" />
-                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=-" colorClass="text-rose-500" />
-                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} iconUrl="https://placehold.co/40x40/10B981/FFFFFF/png?text=P" colorClass="text-emerald-500" />
-                                        <StatCard title="アルバイト人件費率" value={`${currentViewData.revenue > 0 ? (currentViewData.partTime / currentViewData.revenue * 100).toFixed(1) : 0}%`} subValue="売上比" iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=Pt" colorClass="text-rose-500" />
-                                        <StatCard title="利益率" value={`${currentViewData.revenue ? ((currentViewData.profit/currentViewData.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" iconUrl="https://placehold.co/40x40/F3981E/FFFFFF/png?text=%" colorClass="text-brand-orange" />
+                                        <StatCard 
+                                            title="売上" 
+                                            value={formatYen(currentViewData.revenue)} 
+                                            subValue={currentViewData.periodLabel} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg" 
+                                            colorClass="text-brand-blue" 
+                                        />
+                                        <StatCard 
+                                            title="費用" 
+                                            value={formatYen(currentViewData.expense)} 
+                                            subValue={currentViewData.periodLabel} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_72e22ba6-81fa-4b3e-abf5-23d886ad1dea.svg" 
+                                            colorClass="text-rose-500" 
+                                        />
+                                        <StatCard 
+                                            title="営業利益" 
+                                            value={formatYen(currentViewData.profit)} 
+                                            subValue={currentViewData.periodLabel} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_33bb072f-fe8f-4a20-8e5a-0bc5f53bde3d.svg" 
+                                            colorClass="text-emerald-500" 
+                                        />
+                                        <StatCard 
+                                            title="アルバイト人件費率" 
+                                            value={`${currentViewData.revenue > 0 ? (currentViewData.partTime / currentViewData.revenue * 100).toFixed(1) : 0}%`} 
+                                            subValue="売上比" 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_f93e0546-f8d7-464b-b008-882ad339027e.svg" 
+                                            colorClass="text-rose-500" 
+                                        />
+                                        <StatCard 
+                                            title="利益率" 
+                                            value={`${currentViewData.revenue ? ((currentViewData.profit/currentViewData.revenue)*100).toFixed(1) : 0}%`} 
+                                            subValue="売上対比" 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_d71099f5-a933-4295-9991-75c16e130f81.svg" 
+                                            colorClass="text-brand-orange" 
+                                        />
                                     </div>
                                     
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
@@ -1239,13 +1302,33 @@
                                 </div>
                             )}
                             
-                            {/* Students View - StatCard Update */}
+                            {/* Students View - StatCard Update with Custom Icon URLs */}
                             {activeTab === 'students' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                        <StatCard title="期間内増加" value={`${totals.newEnrollments + totals.transferIns}名`} subValue="入会+転入" iconUrl="https://placehold.co/40x40/10B981/FFFFFF/png?text=+" colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}]} />
-                                        <StatCard title="期間内減少" value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} subValue="退会+転校+卒業" iconUrl="https://placehold.co/40x40/EF4444/FFFFFF/png?text=-" colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} />
-                                        <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末':'月末'} iconUrl="https://placehold.co/40x40/1E51A2/FFFFFF/png?text=Stu" colorClass="text-brand-blue" />
+                                        <StatCard 
+                                            title="期間内増加" 
+                                            value={`${totals.newEnrollments + totals.transferIns}名`} 
+                                            subValue="入会+転入" 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_d71099f5-a933-4295-9991-75c16e130f81.svg" 
+                                            colorClass="text-emerald-500" 
+                                            details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}]} 
+                                        />
+                                        <StatCard 
+                                            title="期間内減少" 
+                                            value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} 
+                                            subValue="退会+転校+卒業" 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_c22e686d-38dc-4fb6-bcf8-dc71adcf9d99.svg" 
+                                            colorClass="text-rose-500" 
+                                            details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} 
+                                        />
+                                        <StatCard 
+                                            title="在籍生徒数" 
+                                            value={`${currentTotalStudents}名`} 
+                                            subValue={viewMode==='annual'?'年度末':'月末'} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_cd586213-916c-4b50-b0c3-deb64e7fdd8a.svg" 
+                                            colorClass="text-brand-blue" 
+                                        />
                                     </div>
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
                                         <h3 className="text-lg font-bold text-gray-800 mb-6">生徒数増減詳細</h3>
