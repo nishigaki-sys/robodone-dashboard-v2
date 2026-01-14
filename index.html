@@ -266,6 +266,7 @@
                 const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
                     const day = i + 1;
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
+                    
                     const filterDay = (list, typeFilter=null, dateKey='date') => list.filter(item => {
                         if (!isTargetCampus(item)) return false; 
                         let itemDateStr = "";
@@ -274,6 +275,7 @@
                         return itemDateStr === dateStr && (!typeFilter || item.type?.includes(typeFilter));
                     }).length;
 
+                    // Enrollment/Status
                     const dEnroll = filterDay(enrollments);
                     const dTransferIn = filterDay(transfers);
                     const dReturn = filterDay(statusChanges, "復会");
@@ -281,19 +283,34 @@
                     const dGrad = filterDay(statusChanges, "卒業");
                     const dTransferOut = filterDay(statusChanges, "転校");
                     const dRecess = filterDay(statusChanges, "休会");
+                    
+                    // Daily Reports (Including actual trial lessons)
                     const dayReports = dailyReports.filter(r => r.date === dateStr && isTargetCampus(r));
                     const dFlyers = dayReports.reduce((sum, r) => sum + (Number(r.flyers) || 0), 0);
-                    const dTrialApp = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'date');
-                    const dEventApp = filterDay(trialApps.filter(a => a.type?.includes('イベント')), null, 'date');
-                    const dTrialExec = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'trialDate');
-                    const dEventExec = filterDay(trialApps.filter(a => a.type?.includes('イベント')), null, 'trialDate');
+                    const dTrialActual = dayReports.reduce((sum, r) => sum + (Number(r.trialLessons) || 0), 0); // 修正: 実実施数
+
+                    // Trial Applications (Classified into Trial/Event and Application/Scheduled)
+                    const trialAppsOnly = trialApps.filter(a => a.type === '体験会'); // 修正: 体験会のみ
+                    const eventAppsOnly = trialApps.filter(a => a.type !== '体験会'); // 修正: 体験会以外はイベント
+
+                    const dTrialApp = filterDay(trialAppsOnly, null, 'date');
+                    const dEventApp = filterDay(eventAppsOnly, null, 'date');
+                    
+                    // trialDate is now treated as "Scheduled" (予定)
+                    const dTrialScheduled = filterDay(trialAppsOnly, null, 'trialDate'); 
+                    const dEventScheduled = filterDay(eventAppsOnly, null, 'trialDate'); 
 
                     return {
                         name: `${day}日`, date: dateStr,
                         newEnrollments: dEnroll, transferIns: dTransferIn, returns: dReturn,
                         withdrawals: dWithdraw, withdrawals_neg: -dWithdraw,
                         graduates_neg: -dGrad, transfers_neg: -dTransferOut, recesses_neg: -dRecess,
-                        flyers: dFlyers, trialApp: dTrialApp, eventApp: dEventApp, trialExec: dTrialExec, eventExec: dEventExec,
+                        flyers: dFlyers, 
+                        trialApp: dTrialApp, 
+                        eventApp: dEventApp, 
+                        trialScheduled: dTrialScheduled, // New
+                        eventScheduled: dEventScheduled, // New
+                        trialActual: dTrialActual // New (From Daily Report)
                     };
                 });
 
@@ -305,7 +322,9 @@
                         newEnrollments: sum('newEnrollments'), transferIns: sum('transferIns'), returns: sum('returns'),
                         withdrawals: sum('withdrawals'), withdrawals_neg: sum('withdrawals_neg'), graduates_neg: sum('graduates_neg'),
                         transfers_neg: sum('transfers_neg'), recesses_neg: sum('recesses_neg'), flyers: sum('flyers'),
-                        trialApp: sum('trialApp'), eventApp: sum('eventApp'), trialExec: sum('trialExec'), eventExec: sum('eventExec')
+                        trialApp: sum('trialApp'), eventApp: sum('eventApp'), 
+                        trialScheduled: sum('trialScheduled'), eventScheduled: sum('eventScheduled'),
+                        trialActual: sum('trialActual')
                     };
                 });
 
@@ -318,7 +337,13 @@
                     newEnrollments: sumDaily('newEnrollments'), transferIns: sumDaily('transferIns'), returns: sumDaily('returns'),
                     withdrawals: sumDaily('withdrawals'), withdrawals_neg: sumDaily('withdrawals_neg'),
                     transfers_neg: sumDaily('transfers_neg'), graduates_neg: sumDaily('graduates_neg'), recesses_neg: sumDaily('recesses_neg'),
-                    flyers: sumDaily('flyers'), trialApp: sumDaily('trialApp'), trialExec: sumDaily('trialExec'), eventApp: sumDaily('eventApp'), eventExec: sumDaily('eventExec'),
+                    flyers: sumDaily('flyers'), 
+                    trialApp: sumDaily('trialApp'), 
+                    eventApp: sumDaily('eventApp'),
+                    trialScheduled: sumDaily('trialScheduled'),
+                    eventScheduled: sumDaily('eventScheduled'),
+                    trialActual: sumDaily('trialActual'),
+
                     ...currentFin, expense: currentFin.expenseTotal, profit: currentFin.revenue - currentFin.expenseTotal, detailItems: currentFin.details,
                     prevRevenue: prevFin.revenue, prevExpense: prevFin.expenseTotal, prevProfit: prevFin.revenue - prevFin.expenseTotal, prevDetailItems: prevFin.details,
                     prevAd: prevFin.ad, prevSales: prevFin.sales, prevLabor: prevFin.labor, prevFacility: prevFin.facility, prevAdmin: prevFin.admin, prevHq: prevFin.hq, prevOther: prevFin.other,
@@ -339,7 +364,8 @@
                 const agg = targets.reduce((acc, curr) => {
                     const keys = [
                         'revenue','expense','profit','ad','sales','labor','facility','admin','hq','other','partTime',
-                        'newEnrollments','transferIns','returns','withdrawals','graduates_neg','transfers_neg','recesses_neg','flyers','trialApp','eventApp','trialExec','eventExec',
+                        'newEnrollments','transferIns','returns','withdrawals','graduates_neg','transfers_neg','recesses_neg',
+                        'flyers','trialApp','eventApp','trialScheduled','eventScheduled','trialActual', // 修正: 追加したキーを集計対象に含める
                         'withdrawals_neg', 'transfers_neg', 'graduates_neg', 'recesses_neg',
                         'prevRevenue', 'prevExpense', 'prevProfit', 'prevAd', 'prevSales', 'prevLabor', 'prevFacility', 'prevAdmin', 'prevHq', 'prevOther', 'prevNewEnrollments', 'prevWithdrawals'
                     ];
@@ -362,161 +388,7 @@
         };
 
         // ==========================================
-        // 3. UI Components (Defined BEFORE App)
-        // ==========================================
-        const Notification = ({ msg, type, onClose }) => {
-            if (!msg) return null;
-            return (
-                <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center gap-3 animate-in slide-in-from-top-5 ${type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>
-                    {type === 'error' ? <AlertCircle className="w-5 h-5"/> : <CheckCircle2 className="w-5 h-5"/>}
-                    <span className="text-sm font-medium">{msg}</span>
-                    <button onClick={onClose}><X className="w-4 h-4 opacity-50 hover:opacity-100"/></button>
-                </div>
-            );
-        };
-
-        const StatCard = ({ title, value, subValue, iconUrl, colorClass, details, yoy }) => (
-            <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-l-transparent hover:border-l-brand-orange transition-all duration-200 group h-full">
-                <div className="flex flex-col items-start">
-                    <div className="flex items-center gap-2 mb-1">
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{title}</p>
-                        {iconUrl && <img src={iconUrl} alt={title} className="w-5 h-5 object-contain" />}
-                    </div>
-                    <h3 className="text-2xl font-bold text-gray-800 group-hover:text-brand-blue transition-colors">{value}</h3>
-                    {yoy && (
-                        <div className="flex items-center mt-1 gap-1">
-                             <span className="text-xs font-medium text-gray-400">前年比</span>
-                             <span className={`text-sm font-bold ${Number(yoy) >= 100 ? 'text-emerald-500' : 'text-rose-500'}`}>{yoy}%</span>
-                        </div>
-                    )}
-                </div>
-                {subValue && <div className="mt-4 flex items-center text-sm"><span className="text-gray-400 font-medium">{subValue}</span></div>}
-                {details && (
-                    <div className="mt-4 pt-3 border-t border-slate-100 space-y-1">
-                        {details.map((item, idx) => (
-                            <div key={idx} className="flex justify-between text-xs text-slate-500">
-                                <span>{item.label}</span><span className="font-medium text-slate-700">{item.value}</span>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        );
-
-        const DetailModal = ({ isOpen, onClose, data, title, color }) => {
-            if (!isOpen || !data) return null;
-            const chartData = data.filter(d => d.value > 0);
-            const total = chartData.reduce((acc, curr) => acc + curr.value, 0);
-            return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay backdrop-blur-sm transition-opacity" onClick={onClose}>
-                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-lg bg-white shadow-sm" style={{color: color}}><Search className="w-5 h-5"/></div>
-                                <div><h3 className="text-xl font-bold text-gray-800">{title} 詳細内訳</h3><p className="text-sm text-gray-500">合計: <span className="font-bold text-gray-700">{formatYen(total)}</span></p></div>
-                            </div>
-                            <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X className="w-5 h-5 text-gray-500"/></button>
-                        </div>
-                        <div className="p-6 overflow-y-auto flex-1">
-                            <div className="flex flex-col md:flex-row gap-8">
-                                <div className="w-full md:w-1/2 h-64">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <PieChart>
-                                            <Pie data={chartData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={2} dataKey="value">
-                                                {chartData.map((entry, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
-                                            </Pie>
-                                            <Tooltip formatter={(value)=>formatYen(value)} />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                                <div className="w-full md:w-1/2 space-y-3">
-                                    {chartData.map((item, idx) => (
-                                        <div key={idx} className="flex justify-between items-center p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-3 h-3 rounded-full" style={{backgroundColor: PIE_COLORS[idx % PIE_COLORS.length]}}></div>
-                                                <div><div className="text-sm font-bold text-gray-700">{item.name}</div><div className="text-xs text-gray-400 font-mono">{item.code}</div></div>
-                                            </div>
-                                            <div className="text-right"><div className="text-sm font-bold text-gray-800">{formatYen(item.value)}</div><div className="text-xs text-gray-400">{((item.value/total)*100).toFixed(1)}%</div></div>
-                                        </div>
-                                    ))}
-                                    {chartData.length === 0 && <div className="text-center text-gray-400 py-8">データがありません</div>}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        const CsvUploader = ({ onUpload, isUploading, targetYear, setTargetYear }) => {
-            const fileInputRef = useRef(null);
-            const handleFileChange = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (event) => parseCSV(event.target.result);
-                reader.readAsText(file, 'Shift_JIS');
-            };
-            const parseCSV = (text) => {
-                const lines = text.split(/\r\n|\n/);
-                const data = [];
-                let headerIdx = -1;
-                for(let i=0; i<lines.length; i++) {
-                    if (lines[i].includes('勘定コード') || lines[i].includes('科目') || lines[i].includes('４月')) { headerIdx = i; break; }
-                }
-                if (headerIdx === -1) { alert("フォーマット認識エラー"); return; }
-                const headers = lines[headerIdx].split(',').map(h => h.trim());
-                const monthMap = {}; 
-                headers.forEach((h, idx) => { const mMatch = h.match(/([０-９0-9]+)月/); if (mMatch) monthMap[h] = idx; });
-                for (let i = headerIdx + 1; i < lines.length; i++) {
-                    const line = lines[i].trim(); if (!line) continue;
-                    const cols = line.split(',');
-                    const codeCol = cols[0] ? cols[0].trim() : '';
-                    if (!/^\d/.test(codeCol)) continue;
-                    const parts = codeCol.split(/\s+/);
-                    const code = parts[0];
-                    const name = parts.length > 1 ? parts.slice(1).join(' ') : '不明';
-                    let category = 'other';
-                    let signMultiplier = 1;
-                    if (code.startsWith('5')) { category = 'revenue'; signMultiplier = -1; } 
-                    else if (code.startsWith('6') || code.startsWith('7')) { category = 'expense'; signMultiplier = 1; } 
-                    else { continue; }
-                    Object.entries(monthMap).forEach(([monthLabel, colIdx]) => {
-                        const rawVal = cols[colIdx];
-                        if (rawVal) {
-                            const val = Number(rawVal);
-                            if (!isNaN(val) && val !== 0) {
-                                const monthNum = parseInt(monthLabel.replace('月','').replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)));
-                                data.push({ month: monthNum, category, subCategory: name, amount: val * signMultiplier, accountCode: code });
-                            }
-                        }
-                    });
-                }
-                onUpload(data);
-                if (fileInputRef.current) fileInputRef.current.value = "";
-            };
-            return (
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border border-gray-200">
-                        <label className="text-sm font-bold text-gray-700">取り込み対象年度:</label>
-                        <select value={targetYear} onChange={(e) => setTargetYear(Number(e.target.value))} className="bg-white border border-gray-300 rounded px-3 py-1.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-brand-blue">
-                            {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
-                        </select>
-                    </div>
-                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors cursor-pointer group" onClick={() => fileInputRef.current?.click()}>
-                        <input type="file" accept=".csv" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
-                        <div className="w-16 h-16 bg-blue-50 text-brand-blue rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
-                            {isUploading ? <Loader2 className="w-8 h-8 animate-spin" /> : <Upload className="w-8 h-8" />}
-                        </div>
-                        <h3 className="text-lg font-bold text-gray-700 mb-1">収支CSVファイルをアップロード</h3>
-                        <p className="text-sm text-gray-400">対応形式: ロボ団営業部収支計算表 (横持ち形式)</p>
-                    </div>
-                </div>
-            );
-        };
-
-        // ==========================================
-        // 4. School Console Component (DEFINED BEFORE APP)
+        // 3. School Console Component (DEFINED BEFORE APP)
         // ==========================================
         function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
             const [activeTab, setActiveTab] = useState('daily');
@@ -780,7 +652,279 @@
             );
         }
 
-           // ==========================================
+        // ==========================================
+        // 4. School Console Component (DEFINED BEFORE APP)
+        // ==========================================
+        function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
+            const [activeTab, setActiveTab] = useState('daily');
+            // 修正: 初期表示時に現在の月を選択状態にする
+            const [selectedMonth, setSelectedMonth] = useState(() => { const d = new Date(); return (d.getMonth() + 1) + '月'; });
+            const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
+            const [inputData, setInputData] = useState({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
+            const [uploading, setUploading] = useState(false);
+            const [planData, setPlanData] = useState({});
+            const [isSavingPlan, setIsSavingPlan] = useState(false);
+            const [uploadTargetYear, setUploadTargetYear] = useState(selectedYear);
+            const [isInputModalOpen, setIsInputModalOpen] = useState(false);
+
+            const lastUploadInfo = useMemo(() => {
+                if (!campus || !allData.financialUpdates) return null;
+                const update = allData.financialUpdates.find(u => u.campusId === campus.id && u.fiscalYear === uploadTargetYear);
+                return update ? parseDate(update.updatedAt) : null;
+            }, [campus, allData.financialUpdates, uploadTargetYear]);
+
+            useEffect(() => {
+                if (activeTab === 'plan' && campus) {
+                    const fetchPlan = async () => {
+                        try {
+                            const docRef = doc(db, "campus_plans", `${campus.id}_${selectedYear}`);
+                            const docSnap = await getDoc(docRef);
+                            setPlanData(docSnap.exists() ? docSnap.data().plans : createInitialPlanData());
+                        } catch (e) { console.error(e); }
+                    };
+                    fetchPlan();
+                }
+            }, [activeTab, campus, selectedYear]);
+
+            const createInitialPlanData = () => {
+                return MONTHS_LIST.reduce((acc, month) => {
+                    acc[month] = { enrollments: 0, trials: 0, touchTry: 0, flyers: 0, rate: 0 };
+                    return acc;
+                }, {});
+            };
+
+            useEffect(() => {
+                if (!campus) return;
+                const existing = allData.dailyReports.find(r => r.campusId === campus.id && r.date === reportDate);
+                if (existing) {
+                    setInputData({
+                        weather: existing.weather || 'sunny', flyers: existing.flyers || 0, touch: existing.touchTry || 0, trial: existing.trialLessons || 0
+                    });
+                } else { setInputData({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 }); }
+            }, [reportDate, allData.dailyReports, campus]);
+
+            const handleDateClick = (dateStr) => { setReportDate(dateStr); setIsInputModalOpen(true); };
+            
+            const handleSaveReport = async () => {
+                if (!campus) return;
+                try {
+                    await setDoc(doc(db, "daily_reports", `${campus.id}_${reportDate}`), {
+                        campusId: campus.id, date: reportDate, weather: inputData.weather,
+                        flyers: Number(inputData.flyers), touchTry: Number(inputData.touch), trialLessons: Number(inputData.trial),
+                        updatedAt: serverTimestamp()
+                    });
+                    refreshData(); showNotify("日報を保存しました"); setIsInputModalOpen(false);
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+            
+            const handlePlanChange = (month, field, value) => {
+                setPlanData(prev => {
+                    const newData = { ...prev };
+                    newData[month] = { ...newData[month], [field]: Number(value) };
+                    if (field === 'enrollments' || field === 'trials') {
+                        const enr = field === 'enrollments' ? Number(value) : (newData[month].enrollments || 0);
+                        const tri = field === 'trials' ? Number(value) : (newData[month].trials || 0);
+                        newData[month].rate = tri > 0 ? ((enr / tri) * 100).toFixed(1) : 0;
+                    }
+                    return newData;
+                });
+            };
+            
+            const handleSavePlan = async () => {
+                if (!campus) return;
+                setIsSavingPlan(true);
+                try {
+                    await setDoc(doc(db, "campus_plans", `${campus.id}_${selectedYear}`), { campusId: campus.id, year: selectedYear, plans: planData, updatedAt: serverTimestamp() });
+                    showNotify("年間計画を保存しました");
+                } catch (e) { showNotify("保存失敗: " + e.message, 'error'); } finally { setIsSavingPlan(false); }
+            };
+            
+            const handleCsvUpload = async (parsedData) => {
+                if (!campus) return;
+                setUploading(true);
+                try {
+                    const batchSize = 450; 
+                    const q = query(collection(db, "financials"), where("campusId", "==", campus.id), where("fiscalYear", "==", uploadTargetYear));
+                    const snapshot = await getDocs(q);
+                    const chunks = [];
+                    for (let i = 0; i < snapshot.docs.length; i += batchSize) chunks.push(snapshot.docs.slice(i, i + batchSize));
+                    for (const chunk of chunks) { const deleteBatch = writeBatch(db); chunk.forEach(doc => deleteBatch.delete(doc.ref)); await deleteBatch.commit(); }
+                    const insertChunks = [];
+                    for (let i = 0; i < parsedData.length; i += batchSize) insertChunks.push(parsedData.slice(i, i + batchSize));
+                    for (const chunk of insertChunks) {
+                        const insertBatch = writeBatch(db);
+                        chunk.forEach(item => {
+                            let tYear = Number(uploadTargetYear); if (item.month <= 3) tYear += 1;
+                            const dateStr = `${tYear}-${('0'+item.month).slice(-2)}-01`;
+                            const ref = doc(collection(db, "financials"));
+                            insertBatch.set(ref, { 
+                                date: dateStr, fiscalYear: uploadTargetYear, amount: item.amount, 
+                                category: item.category, subCategory: item.subCategory, accountCode: item.accountCode,
+                                campusId: campus.id, createdAt: serverTimestamp() 
+                            });
+                        });
+                        await insertBatch.commit();
+                    }
+                    await setDoc(doc(db, "financial_updates", `${campus.id}_${uploadTargetYear}`), { campusId: campus.id, fiscalYear: uploadTargetYear, updatedAt: serverTimestamp() });
+                    refreshData(); showNotify(`${parsedData.length}件のデータを取り込みました (重複削除済み)`);
+                } catch (e) { showNotify("エラー: " + e.message, 'error'); } finally { setUploading(false); }
+            };
+
+            if (!campus) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-brand-blue"/></div>;
+            const weatherMap = { sunny: {i:Sun,l:'晴',c:'text-orange-500'}, cloudy: {i:Cloud,l:'曇',c:'text-gray-500'}, rainy: {i:CloudRain,l:'雨',c:'text-blue-500'}, snowy: {i:Snowflake,l:'雪',c:'text-cyan-500'}, closed: {i:Ban,l:'休',c:'text-red-500'} };
+            
+            // 修正: 選択月が1,2,3月の場合は、年表示を年度+1にする
+            const isJanFebMar = ['1月', '2月', '3月'].includes(selectedMonth);
+            const displayCalendarYear = isJanFebMar ? Number(selectedYear) + 1 : Number(selectedYear);
+
+            return (
+                <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
+                    {isInputModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay backdrop-blur-sm transition-opacity" onClick={() => setIsInputModalOpen(false)}>
+                            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full animate-in zoom-in-95 duration-200 p-6" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold text-gray-800 flex items-center"><PenTool className="w-5 h-5 mr-2 text-brand-blue"/> 日報入力</h3>
+                                    <div className="text-sm font-bold text-gray-500">{reportDate}</div>
+                                </div>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 block mb-2">天気</label>
+                                        <div className="flex gap-2 justify-between">
+                                            {Object.entries(weatherMap).map(([k,v])=><button key={k} onClick={()=>setInputData({...inputData,weather:k})} className={`flex-1 py-2 rounded-lg border flex flex-col items-center justify-center transition-colors ${inputData.weather===k?'bg-blue-50 border-brand-blue':'border-gray-100 hover:bg-gray-50'}`}><v.i className={`w-4 h-4 mb-1 ${v.c}`}/><span className="text-[10px] font-bold text-gray-500">{v.l}</span></button>)}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-xs font-bold text-gray-400 block mb-1">門配数</label><input type="number" value={inputData.flyers} onChange={e=>setInputData({...inputData,flyers:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                        <div><label className="text-xs font-bold text-gray-400 block mb-1">T&T数</label><input type="number" value={inputData.touch} onChange={e=>setInputData({...inputData,touch:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                    </div>
+                                    <div><label className="text-xs font-bold text-gray-400 block mb-1">体験会実施数</label><input type="number" value={inputData.trial} onChange={e=>setInputData({...inputData,trial:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                    <div className="flex gap-3 mt-6">
+                                        <button onClick={() => setIsInputModalOpen(false)} className="flex-1 py-3 text-gray-500 hover:bg-gray-100 rounded-lg font-bold">キャンセル</button>
+                                        <button onClick={handleSaveReport} className="flex-1 bg-brand-orange text-white font-bold py-3 rounded-lg hover:bg-orange-600 shadow-sm flex items-center justify-center"><Save className="w-4 h-4 mr-2"/>保存</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col z-10">
+                        <div className="p-6 border-b border-gray-100">
+                            <div className="flex items-center space-x-2 mb-1"><School className="w-5 h-5 text-brand-orange" /><span className="font-bold text-sm text-brand-orange">校舎コンソール</span></div>
+                            <h2 className="text-xl font-bold text-gray-800 truncate">{campus.name}</h2>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-1">
+                            {[{id:'daily',l:'日報入力',i:Calendar}, {id:'plan',l:'計画策定',i:FileText}, {id:'finance',l:'収支取込',i:FileSpreadsheet}].map(t => (
+                                <button key={t.id} onClick={() => setActiveTab(t.id)} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === t.id ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                    <t.i className="w-5 h-5 mr-3" />{t.l}
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="p-4 border-t border-gray-100"><button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2"><LogOut className="w-4 h-4 mr-2" /> 戻る</button></div>
+                    </aside>
+                    <main className="flex-1 overflow-y-auto">
+                        <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
+                            <h2 className="text-xl font-bold text-gray-800">{{daily:'日報管理', plan:'計画策定', finance:'収支管理'}[activeTab]}</h2>
+                            <div className="flex items-center space-x-4">
+                                <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-orange outline-none">
+                                    {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
+                                </select>
+                                <div className="w-8 h-8 rounded-full bg-brand-blue flex items-center justify-center text-white font-bold text-xs">SC</div>
+                            </div>
+                        </header>
+                        <div className="p-8 max-w-5xl mx-auto">
+                            {activeTab === 'daily' && (
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in">
+                                    <div className="lg:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between mb-4">
+                                            {/* 修正: 年またぎを考慮したカレンダーヘッダー表示 */}
+                                            <h3 className="font-bold text-gray-700 flex items-center"><Calendar className="w-4 h-4 mr-2"/> {displayCalendarYear}年 {selectedMonth}</h3>
+                                            <div className="flex gap-1">{MONTHS_LIST.map(m=><button key={m} onClick={()=>setSelectedMonth(m)} className={`text-xs px-2 py-1 rounded ${selectedMonth===m?'bg-brand-orange text-white':'text-gray-400 hover:bg-gray-100'}`}>{m}</button>)}</div>
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                                            {['日','月','火','水','木','金','土'].map((d,i)=><div key={i} className="bg-gray-50 text-center py-2 text-xs font-bold text-gray-500">{d}</div>)}
+                                            {Array.from({length:31},(_,i)=>i+1).map(d=>{
+                                                const targetMonthIdx = MONTHS_LIST.indexOf(selectedMonth);
+                                                let tYear = Number(selectedYear); let tMonth = targetMonthIdx + 3; if (tMonth > 11) { tMonth -= 12; tYear++; }
+                                                const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+d).slice(-2)}`; 
+                                                const report = allData.dailyReports.find(r => r.campusId === campus.id && r.date === dateStr);
+                                                const WeatherIcon = report && weatherMap[report.weather] ? weatherMap[report.weather].i : null;
+                                                const isToday = dateStr === formatDateStr(new Date());
+                                                return (
+                                                    <div key={d} onClick={()=>handleDateClick(dateStr)} className={`bg-white h-24 p-1 cursor-pointer hover:bg-blue-50 relative flex flex-col justify-between border border-transparent hover:border-blue-200 ${isToday?'bg-blue-50/60':''}`}>
+                                                        <div className="flex justify-between items-start">
+                                                            <span className={`text-xs font-bold ${isToday?'text-brand-blue':'text-gray-700'}`}>{d}</span>
+                                                            {WeatherIcon && <WeatherIcon className={`w-3 h-3 ${weatherMap[report.weather].c}`}/>}
+                                                        </div>
+                                                        {report && (
+                                                            <div className="text-[9px] text-gray-500 space-y-0.5">
+                                                                <div className="flex justify-between"><span>門配</span><span className="font-bold">{report.flyers}</span></div>
+                                                                <div className="flex justify-between"><span>T&T</span><span className="font-bold">{report.touchTry}</span></div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab === 'plan' && (
+                                <div className="space-y-6 animate-in fade-in">
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="font-bold text-gray-800 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-brand-orange"/> {selectedYear}年度 計画入力</h3>
+                                            <button onClick={handleSavePlan} disabled={isSavingPlan} className="bg-brand-blue text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 flex items-center">{isSavingPlan ? <Loader2 className="animate-spin w-4 h-4 mr-2"/> : <Save className="w-4 h-4 mr-2"/>} 保存する</button>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left border-collapse">
+                                                <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200">
+                                                    <tr><th className="px-4 py-3 min-w-[80px]">月度</th><th className="px-4 py-3 min-w-[100px]">目標入会</th><th className="px-4 py-3 min-w-[100px]">体験会数</th><th className="px-4 py-3 min-w-[100px]">門配目標</th><th className="px-4 py-3 min-w-[80px]">入会率</th></tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {MONTHS_LIST.map((m) => (
+                                                        <tr key={m} className="hover:bg-gray-50">
+                                                            <td className="px-4 py-2 font-bold text-gray-700">{m}</td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.enrollments || 0} onChange={(e)=>handlePlanChange(m, 'enrollments', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.trials || 0} onChange={(e)=>handlePlanChange(m, 'trials', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.flyers || 0} onChange={(e)=>handlePlanChange(m, 'flyers', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2 text-right font-mono text-gray-500">{planData[m]?.rate || 0}%</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab === 'finance' && (
+                                <div className="space-y-8 bg-white p-8 rounded-xl shadow-sm border border-gray-100 animate-in fade-in">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-lg font-bold text-gray-800 flex items-center"><FileSpreadsheet className="w-5 h-5 mr-2 text-brand-orange"/> 収支CSV取込 (横持ち形式)</h3>
+                                        {lastUploadInfo && (
+                                            <div className="flex items-center text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full border border-gray-200">
+                                                <Clock className="w-3 h-3 mr-1.5" />
+                                                最終更新: <span className="font-bold ml-1">{lastUploadInfo.toLocaleString()}</span>
+                                                <span className="ml-1 text-gray-400">({uploadTargetYear}年度)</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="max-w-xl mx-auto"><CsvUploader onUpload={handleCsvUpload} isUploading={uploading} targetYear={uploadTargetYear} setTargetYear={setUploadTargetYear} /></div>
+                                    <div className="text-sm text-gray-500 bg-gray-50 p-4 rounded-lg">
+                                        <p className="font-bold mb-2">取込ルール:</p>
+                                        <ul className="list-disc list-inside space-y-1">
+                                            <li><span className="font-bold text-red-500">重要:</span> 詳細分析のため「勘定コード」を保存します。以前のデータを上書き更新してください。</li>
+                                            <li>取り込みを実行すると、選択した年度の既存データは全て上書き(削除→再登録)されます。</li>
+                                            <li>5系:売上, 61:広告, 62:販売, 63:人件費, 64:設備, 65:管理, 69:本社 に自動分類されます。</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        // ==========================================
         // 5. HQ Console Component (DEFINED BEFORE APP)
         // ==========================================
         function HQConsole({ onBack, campusList, allData, selectedYear, setSelectedYear, refreshData, showNotify, isSyncing, lastUpdated, isUsingCache }) {
@@ -814,10 +958,8 @@
             const displayData = useMemo(() => {
                 if (viewMode === 'annual') return fullDashboardData;
                 if (viewMode === 'half' || viewMode === 'quarter') return aggregatePeriod(fullDashboardData, viewMode);
-                
                 const targetMonthData = fullDashboardData.find(m => m.name === selectedMonth);
                 if (!targetMonthData) return [];
-
                 if (viewMode === 'weekly') return targetMonthData.weekly || [];
                 return targetMonthData.daily;
             }, [fullDashboardData, viewMode, selectedMonth]);
@@ -1243,7 +1385,8 @@
                                                 <Bar yAxisId="left" dataKey="flyers" name="門配数" fill="#94a3b8" />
                                                 <Bar yAxisId="left" dataKey="trialApp" name="体験申込" stackId="app" fill="#3b82f6" />
                                                 <Bar yAxisId="left" dataKey="eventApp" name="イベント申込" stackId="app" fill="#93c5fd" />
-                                                <Bar yAxisId="left" dataKey="trialExec" name="体験実施" stackId="exec" fill="#f97316" />
+                                                {/* 修正: 実施数のデータキーを trialActual に変更 */}
+                                                <Bar yAxisId="left" dataKey="trialActual" name="体験実施" stackId="exec" fill="#f97316" />
                                                 <Line yAxisId="right" type="monotone" dataKey="newEnrollments" name="入会数" stroke="#10b981" strokeWidth={3} />
                                             </ComposedChart>
                                         </ResponsiveContainer>
@@ -1415,4 +1558,4 @@
         root.render(<App />);
     </script>
 </body>
-</html> 
+</html>
