@@ -98,31 +98,18 @@
         const MONTHS_LIST = ['4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月'];
         const YEARS_LIST = [2022, 2023, 2024, 2025, 2026];
         
-        // Detailed Color Palette
         const COLORS = {
-            revenue: '#1E51A2',
-            profit: '#10B981',
-            profitOrd: '#059669',
-            ad: '#F3981E',
-            sales: '#F59E0B',
-            labor: '#EF4444',
-            facility: '#8B5CF6',
-            admin: '#6366F1',
-            hq: '#EC4899',
-            other: '#94A3B8'
+            revenue: '#1E51A2', profit: '#10B981', profitOrd: '#059669', ad: '#F3981E', sales: '#F59E0B',
+            labor: '#EF4444', facility: '#8B5CF6', admin: '#6366F1', hq: '#EC4899', other: '#94A3B8'
         };
         const PIE_COLORS = ['#1E51A2', '#F3981E', '#10B981', '#EF4444', '#8B5CF6', '#F59E0B', '#6366F1', '#EC4899', '#14B8A6', '#64748B'];
         const SUB_COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F43F5E', '#F97316', '#EAB308', '#10B981', '#14B8A6', '#06B6D4', '#6366F1'];
 
         const CATEGORY_MAP = {
-            'revenue': { label: 'A51 売上', color: COLORS.revenue },
-            'ad': { label: 'A61 広告宣伝費', color: COLORS.ad },
-            'sales': { label: 'A62 販売費', color: COLORS.sales },
-            'labor': { label: 'A63 人件費', color: COLORS.labor },
-            'facility': { label: 'A64 設備費', color: COLORS.facility },
-            'admin': { label: 'A65 一般管理費', color: COLORS.admin },
-            'hq': { label: 'A69 本社費', color: COLORS.hq },
-            'other': { label: 'その他費用', color: COLORS.other }
+            'revenue': { label: 'A51 売上', color: COLORS.revenue }, 'ad': { label: 'A61 広告宣伝費', color: COLORS.ad },
+            'sales': { label: 'A62 販売費', color: COLORS.sales }, 'labor': { label: 'A63 人件費', color: COLORS.labor },
+            'facility': { label: 'A64 設備費', color: COLORS.facility }, 'admin': { label: 'A65 一般管理費', color: COLORS.admin },
+            'hq': { label: 'A69 本社費', color: COLORS.hq }, 'other': { label: 'その他費用', color: COLORS.other }
         };
 
         const formatYen = (val) => `¥${Number(val).toLocaleString()}`;
@@ -138,48 +125,33 @@
             const d = ('0' + date.getDate()).slice(-2);
             return `${y}-${m}-${d}`;
         };
-        
         const getFiscalYearFromStr = (dateStr) => {
             if (!dateStr) return -1;
             const [y, m] = dateStr.split('-').map(Number);
             if (!y || !m) return -1;
             return m < 4 ? y - 1 : y;
         };
-
         const getFiscalYear = (date) => (date.getMonth() < 3 ? date.getFullYear() - 1 : date.getFullYear());
-        
         const normalizeString = (str) => (!str ? "" : str.replace(/[\s\u3000]/g, "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)));
 
         const getWeeksStruct = (fiscalYear, monthIndex) => {
             let targetYear = fiscalYear;
             let jsMonth = monthIndex + 3; 
-            if (jsMonth > 11) {
-                jsMonth -= 12;
-                targetYear += 1;
-            }
+            if (jsMonth > 11) { jsMonth -= 12; targetYear += 1; }
             const daysInMonth = new Date(targetYear, jsMonth + 1, 0).getDate();
             const weeks = [];
             let startDay = 1;
-
             const firstDayObj = new Date(targetYear, jsMonth, 1);
             const isFirstDaySunday = firstDayObj.getDay() === 0;
 
             for (let day = 1; day <= daysInMonth; day++) {
                 const dateObj = new Date(targetYear, jsMonth, day);
                 const dayOfWeek = dateObj.getDay(); 
-                
                 let isWeekEnd = (dayOfWeek === 0) || (day === daysInMonth);
-
-                if (isFirstDaySunday && day === 1 && daysInMonth > 1) {
-                    isWeekEnd = false;
-                }
-
+                if (isFirstDaySunday && day === 1 && daysInMonth > 1) { isWeekEnd = false; }
                 if (isWeekEnd) {
                     weeks.push({
-                        name: `第${weeks.length + 1}週`,
-                        startDay: startDay,
-                        endDay: day,
-                        label: `${startDay}日～${day}日`
+                        name: `第${weeks.length + 1}週`, startDay: startDay, endDay: day, label: `${startDay}日～${day}日`
                     });
                     startDay = day + 1;
                 }
@@ -208,18 +180,14 @@
         const processDashboardData = (campuses, enrollments, statusChanges, transfers, dailyReports, financials, trialApps, targetYear) => {
             const sheetNameToIdMap = {};
             const targetCampusIds = new Set(campuses.map(c => c.id));
-
             campuses.forEach(c => {
                 const key = c.sheetName || c.name;
                 sheetNameToIdMap[key] = c.id;
                 sheetNameToIdMap[normalizeString(key)] = c.id;
             });
-
             const isTargetCampus = (item) => {
                 let cId = item.campusId; 
-                if (!cId && item.campus) { 
-                    cId = sheetNameToIdMap[item.campus] || sheetNameToIdMap[normalizeString(item.campus)];
-                }
+                if (!cId && item.campus) { cId = sheetNameToIdMap[item.campus] || sheetNameToIdMap[normalizeString(item.campus)]; }
                 return cId && targetCampusIds.has(cId);
             };
 
@@ -231,10 +199,7 @@
                     let fy = -1;
                     if (typeof item.date === 'string' && item.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
                          fy = getFiscalYearFromStr(item.date);
-                    } else {
-                         const d = parseDate(item.date);
-                         if (d) fy = getFiscalYear(d);
-                    }
+                    } else { const d = parseDate(item.date); if (d) fy = getFiscalYear(d); }
                     if (fy === -1 || fy >= targetYear) return;
                     if (typeFilter && (!item.type || !item.type.includes(typeFilter))) return;
                     count++;
@@ -247,10 +212,9 @@
             const prevGrad = countBefore(statusChanges, "卒業");
             const prevTransferOut = countBefore(statusChanges, "転校");
             baseStudentCount = (prevEnroll + prevTransferIn) - (prevWithdraw + prevGrad + prevTransferOut);
-
             let currentStudents = baseStudentCount;
 
-            const monthlyStats = MONTHS_LIST.map((monthName, mIdx) => {
+            return MONTHS_LIST.map((monthName, mIdx) => {
                 const { weeks, daysInMonth, year: tYear, month: tMonth } = getWeeksStruct(targetYear, mIdx);
                 const tYearPrev = tYear - 1;
                 
@@ -260,7 +224,6 @@
                     const [fY, fM] = dateStr.split('-').map(Number);
                     return fY === tYear && fM === (tMonth + 1);
                 });
-
                 const mFinancialsPrev = financials.filter(fin => {
                     if (!isTargetCampus(fin)) return false;
                     const dateStr = typeof fin.date === 'string' ? fin.date : formatDateStr(parseDate(fin.date));
@@ -273,17 +236,9 @@
                     const details = {};
                     fins.forEach(f => {
                         const cat = determineDetailedCategory(f.accountCode);
-                        if (cat === 'revenue') {
-                            agg.revenue += f.amount;
-                        } else {
-                            agg[cat] += f.amount;
-                            agg.expenseTotal += f.amount;
-                        }
-
-                        if (String(f.accountCode).startsWith('6320')) {
-                            agg.partTime += f.amount;
-                        }
-                        
+                        if (cat === 'revenue') { agg.revenue += f.amount; } 
+                        else { agg[cat] += f.amount; agg.expenseTotal += f.amount; }
+                        if (String(f.accountCode).startsWith('6320')) { agg.partTime += f.amount; }
                         if (!details[cat]) details[cat] = [];
                         const existing = details[cat].find(i => i.name === f.subCategory);
                         if (existing) { existing.value += f.amount; } 
@@ -305,23 +260,17 @@
                     const iMonth = d.getMonth() + 1;
                     return iYear === tYearPrev && iMonth === (tMonth + 1) && (!typeFilter || item.type?.includes(typeFilter));
                 }).length;
-
                 const prevNewEnrollments = filterPrevMonth(enrollments);
                 const prevWithdrawals = filterPrevMonth(statusChanges, "退会");
 
                 const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
                     const day = i + 1;
                     const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+day).slice(-2)}`;
-                    
                     const filterDay = (list, typeFilter=null, dateKey='date') => list.filter(item => {
                         if (!isTargetCampus(item)) return false; 
                         let itemDateStr = "";
-                        if (typeof item[dateKey] === 'string' && item[dateKey].match(/^\d{4}-\d{2}-\d{2}$/)) {
-                            itemDateStr = item[dateKey];
-                        } else {
-                            const d = parseDate(item[dateKey]);
-                            if (d) itemDateStr = formatDateStr(d);
-                        }
+                        if (typeof item[dateKey] === 'string' && item[dateKey].match(/^\d{4}-\d{2}-\d{2}$/)) { itemDateStr = item[dateKey]; } 
+                        else { const d = parseDate(item[dateKey]); if (d) itemDateStr = formatDateStr(d); }
                         return itemDateStr === dateStr && (!typeFilter || item.type?.includes(typeFilter));
                     }).length;
 
@@ -332,10 +281,8 @@
                     const dGrad = filterDay(statusChanges, "卒業");
                     const dTransferOut = filterDay(statusChanges, "転校");
                     const dRecess = filterDay(statusChanges, "休会");
-
                     const dayReports = dailyReports.filter(r => r.date === dateStr && isTargetCampus(r));
                     const dFlyers = dayReports.reduce((sum, r) => sum + (Number(r.flyers) || 0), 0);
-                    
                     const dTrialApp = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'date');
                     const dEventApp = filterDay(trialApps.filter(a => a.type?.includes('イベント')), null, 'date');
                     const dTrialExec = filterDay(trialApps.filter(a => !a.type?.includes('イベント')), null, 'trialDate');
@@ -363,76 +310,29 @@
                 });
 
                 const sumDaily = (key) => dailyData.reduce((acc, d) => acc + (d[key] || 0), 0);
-                
-                const netChange = (sumDaily('newEnrollments') + sumDaily('transferIns')) 
-                                - (sumDaily('withdrawals') + -sumDaily('graduates_neg') + -sumDaily('transfers_neg'));
+                const netChange = (sumDaily('newEnrollments') + sumDaily('transferIns')) - (sumDaily('withdrawals') + -sumDaily('graduates_neg') + -sumDaily('transfers_neg'));
                 currentStudents += netChange;
 
-                const expense = currentFin.expenseTotal;
-
                 return {
-                    name: monthName,
-                    students: currentStudents,
-                    newEnrollments: sumDaily('newEnrollments'),
-                    transferIns: sumDaily('transferIns'),
-                    returns: sumDaily('returns'),
-                    withdrawals: sumDaily('withdrawals'),
-                    withdrawals_neg: sumDaily('withdrawals_neg'),
-                    transfers_neg: sumDaily('transfers_neg'),
-                    graduates_neg: sumDaily('graduates_neg'),
-                    recesses_neg: sumDaily('recesses_neg'),
-                    
-                    flyers: sumDaily('flyers'),
-                    trialApp: sumDaily('trialApp'),
-                    trialExec: sumDaily('trialExec'),
-                    eventApp: sumDaily('eventApp'),
-                    eventExec: sumDaily('eventExec'),
-
-                    ...currentFin,
-                    expense,
-                    profit: currentFin.revenue - currentFin.expenseTotal,
-                    detailItems: currentFin.details,
-
-                    prevRevenue: prevFin.revenue,
-                    prevExpense: prevFin.expenseTotal,
-                    prevProfit: prevFin.revenue - prevFin.expenseTotal,
-                    prevDetailItems: prevFin.details,
-                    prevAd: prevFin.ad,
-                    prevSales: prevFin.sales,
-                    prevLabor: prevFin.labor,
-                    prevFacility: prevFin.facility,
-                    prevAdmin: prevFin.admin,
-                    prevHq: prevFin.hq,
-                    prevOther: prevFin.other,
-                    
-                    prevNewEnrollments: prevNewEnrollments,
-                    prevWithdrawals: prevWithdrawals,
-                    
-                    daily: dailyData,
-                    weekly: weeklyData
+                    name: monthName, students: currentStudents,
+                    newEnrollments: sumDaily('newEnrollments'), transferIns: sumDaily('transferIns'), returns: sumDaily('returns'),
+                    withdrawals: sumDaily('withdrawals'), withdrawals_neg: sumDaily('withdrawals_neg'),
+                    transfers_neg: sumDaily('transfers_neg'), graduates_neg: sumDaily('graduates_neg'), recesses_neg: sumDaily('recesses_neg'),
+                    flyers: sumDaily('flyers'), trialApp: sumDaily('trialApp'), trialExec: sumDaily('trialExec'), eventApp: sumDaily('eventApp'), eventExec: sumDaily('eventExec'),
+                    ...currentFin, expense: currentFin.expenseTotal, profit: currentFin.revenue - currentFin.expenseTotal, detailItems: currentFin.details,
+                    prevRevenue: prevFin.revenue, prevExpense: prevFin.expenseTotal, prevProfit: prevFin.revenue - prevFin.expenseTotal, prevDetailItems: prevFin.details,
+                    prevAd: prevFin.ad, prevSales: prevFin.sales, prevLabor: prevFin.labor, prevFacility: prevFin.facility, prevAdmin: prevFin.admin, prevHq: prevFin.hq, prevOther: prevFin.other,
+                    prevNewEnrollments, prevWithdrawals,
+                    daily: dailyData, weekly: weeklyData
                 };
             });
-
-            return monthlyStats;
         };
 
         const aggregatePeriod = (monthlyData, periodType) => {
             if (periodType === 'annual') return monthlyData;
-            
             let groups = [];
-            if (periodType === 'half') {
-                groups = [
-                    { name: '上期', months: ['4月','5月','6月','7月','8月','9月'] },
-                    { name: '下期', months: ['10月','11月','12月','1月','2月','3月'] }
-                ];
-            } else if (periodType === 'quarter') {
-                groups = [
-                    { name: '第1四半期', months: ['4月','5月','6月'] },
-                    { name: '第2四半期', months: ['7月','8月','9月'] },
-                    { name: '第3四半期', months: ['10月','11月','12月'] },
-                    { name: '第4四半期', months: ['1月','2月','3月'] }
-                ];
-            }
+            if (periodType === 'half') { groups = [{ name: '上期', months: ['4月','5月','6月','7月','8月','9月'] }, { name: '下期', months: ['10月','11月','12月','1月','2月','3月'] }]; } 
+            else if (periodType === 'quarter') { groups = [{ name: '第1四半期', months: ['4月','5月','6月'] }, { name: '第2四半期', months: ['7月','8月','9月'] }, { name: '第3四半期', months: ['10月','11月','12月'] }, { name: '第4四半期', months: ['1月','2月','3月'] }]; }
 
             return groups.map(g => {
                 const targets = monthlyData.filter(d => g.months.includes(d.name));
@@ -441,39 +341,28 @@
                         'revenue','expense','profit','ad','sales','labor','facility','admin','hq','other','partTime',
                         'newEnrollments','transferIns','returns','withdrawals','graduates_neg','transfers_neg','recesses_neg','flyers','trialApp','eventApp','trialExec','eventExec',
                         'withdrawals_neg', 'transfers_neg', 'graduates_neg', 'recesses_neg',
-                        'prevRevenue', 'prevExpense', 'prevProfit', 'prevAd', 'prevSales', 'prevLabor', 'prevFacility', 'prevAdmin', 'prevHq', 'prevOther',
-                        'prevNewEnrollments', 'prevWithdrawals'
+                        'prevRevenue', 'prevExpense', 'prevProfit', 'prevAd', 'prevSales', 'prevLabor', 'prevFacility', 'prevAdmin', 'prevHq', 'prevOther', 'prevNewEnrollments', 'prevWithdrawals'
                     ];
-                    keys.forEach(k => {
-                        if (curr[k] !== undefined) acc[k] = (acc[k] || 0) + curr[k];
-                    });
-                    
+                    keys.forEach(k => { if (curr[k] !== undefined) acc[k] = (acc[k] || 0) + curr[k]; });
                     if (curr.detailItems) {
                         Object.keys(curr.detailItems).forEach(cat => {
                             if (!acc.detailItems[cat]) acc.detailItems[cat] = [];
                             curr.detailItems[cat].forEach(item => {
                                 const existing = acc.detailItems[cat].find(i => i.name === item.name);
-                                if (existing) existing.value += item.value;
-                                else acc.detailItems[cat].push({ ...item });
+                                if (existing) existing.value += item.value; else acc.detailItems[cat].push({ ...item });
                             });
                         });
                     }
                     return acc;
                 }, { name: g.name, detailItems: {} });
-                
-                if (targets.length > 0) {
-                    agg.students = targets[targets.length - 1].students;
-                }
-                
+                if (targets.length > 0) { agg.students = targets[targets.length - 1].students; }
                 Object.keys(agg.detailItems).forEach(k => agg.detailItems[k].sort((a,b) => b.value - a.value));
-                
                 return agg;
             });
         };
 
-
         // ==========================================
-        // 3. UI Components
+        // 3. UI Components (Defined BEFORE App)
         // ==========================================
         const Notification = ({ msg, type, onClose }) => {
             if (!msg) return null;
@@ -491,17 +380,13 @@
                 <div className="flex flex-col items-start">
                     <div className="flex items-center gap-2 mb-1">
                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{title}</p>
-                        {iconUrl && (
-                            <img src={iconUrl} alt={title} className="w-5 h-5 object-contain" />
-                        )}
+                        {iconUrl && <img src={iconUrl} alt={title} className="w-5 h-5 object-contain" />}
                     </div>
                     <h3 className="text-2xl font-bold text-gray-800 group-hover:text-brand-blue transition-colors">{value}</h3>
                     {yoy && (
                         <div className="flex items-center mt-1 gap-1">
                              <span className="text-xs font-medium text-gray-400">前年比</span>
-                             <span className={`text-sm font-bold ${Number(yoy) >= 100 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                {yoy}%
-                             </span>
+                             <span className={`text-sm font-bold ${Number(yoy) >= 100 ? 'text-emerald-500' : 'text-rose-500'}`}>{yoy}%</span>
                         </div>
                     )}
                 </div>
@@ -522,7 +407,6 @@
             if (!isOpen || !data) return null;
             const chartData = data.filter(d => d.value > 0);
             const total = chartData.reduce((acc, curr) => acc + curr.value, 0);
-
             return (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay backdrop-blur-sm transition-opacity" onClick={onClose}>
                     <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -573,7 +457,6 @@
                 reader.onload = (event) => parseCSV(event.target.result);
                 reader.readAsText(file, 'Shift_JIS');
             };
-
             const parseCSV = (text) => {
                 const lines = text.split(/\r\n|\n/);
                 const data = [];
@@ -582,31 +465,22 @@
                     if (lines[i].includes('勘定コード') || lines[i].includes('科目') || lines[i].includes('４月')) { headerIdx = i; break; }
                 }
                 if (headerIdx === -1) { alert("フォーマット認識エラー"); return; }
-
                 const headers = lines[headerIdx].split(',').map(h => h.trim());
                 const monthMap = {}; 
-                headers.forEach((h, idx) => {
-                    const mMatch = h.match(/([０-９0-9]+)月/);
-                    if (mMatch) monthMap[h] = idx;
-                });
-
+                headers.forEach((h, idx) => { const mMatch = h.match(/([０-９0-9]+)月/); if (mMatch) monthMap[h] = idx; });
                 for (let i = headerIdx + 1; i < lines.length; i++) {
-                    const line = lines[i].trim();
-                    if (!line) continue;
+                    const line = lines[i].trim(); if (!line) continue;
                     const cols = line.split(',');
                     const codeCol = cols[0] ? cols[0].trim() : '';
                     if (!/^\d/.test(codeCol)) continue;
-
                     const parts = codeCol.split(/\s+/);
                     const code = parts[0];
                     const name = parts.length > 1 ? parts.slice(1).join(' ') : '不明';
-
                     let category = 'other';
                     let signMultiplier = 1;
                     if (code.startsWith('5')) { category = 'revenue'; signMultiplier = -1; } 
                     else if (code.startsWith('6') || code.startsWith('7')) { category = 'expense'; signMultiplier = 1; } 
                     else { continue; }
-
                     Object.entries(monthMap).forEach(([monthLabel, colIdx]) => {
                         const rawVal = cols[colIdx];
                         if (rawVal) {
@@ -621,7 +495,6 @@
                 onUpload(data);
                 if (fileInputRef.current) fileInputRef.current.value = "";
             };
-
             return (
                 <div className="space-y-4">
                     <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border border-gray-200">
@@ -643,19 +516,543 @@
         };
 
         // ==========================================
-        // 4. Main App & Consoles
+        // 4. School Console Component (DEFINED BEFORE APP)
+        // ==========================================
+        function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
+            const [activeTab, setActiveTab] = useState('daily');
+            const [selectedMonth, setSelectedMonth] = useState(() => { const d = new Date(); return (d.getMonth() + 1) + '月'; });
+            const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
+            const [inputData, setInputData] = useState({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
+            const [uploading, setUploading] = useState(false);
+            const [planData, setPlanData] = useState({});
+            const [isSavingPlan, setIsSavingPlan] = useState(false);
+            const [uploadTargetYear, setUploadTargetYear] = useState(selectedYear);
+            const [isInputModalOpen, setIsInputModalOpen] = useState(false);
+
+            const lastUploadInfo = useMemo(() => {
+                if (!campus || !allData.financialUpdates) return null;
+                const update = allData.financialUpdates.find(u => u.campusId === campus.id && u.fiscalYear === uploadTargetYear);
+                return update ? parseDate(update.updatedAt) : null;
+            }, [campus, allData.financialUpdates, uploadTargetYear]);
+
+            useEffect(() => {
+                if (activeTab === 'plan' && campus) {
+                    const fetchPlan = async () => {
+                        try {
+                            const docRef = doc(db, "campus_plans", `${campus.id}_${selectedYear}`);
+                            const docSnap = await getDoc(docRef);
+                            setPlanData(docSnap.exists() ? docSnap.data().plans : createInitialPlanData());
+                        } catch (e) { console.error(e); }
+                    };
+                    fetchPlan();
+                }
+            }, [activeTab, campus, selectedYear]);
+
+            const createInitialPlanData = () => {
+                return MONTHS_LIST.reduce((acc, month) => {
+                    acc[month] = { enrollments: 0, trials: 0, touchTry: 0, flyers: 0, rate: 0 };
+                    return acc;
+                }, {});
+            };
+
+            useEffect(() => {
+                if (!campus) return;
+                const existing = allData.dailyReports.find(r => r.campusId === campus.id && r.date === reportDate);
+                if (existing) {
+                    setInputData({
+                        weather: existing.weather || 'sunny', flyers: existing.flyers || 0, touch: existing.touchTry || 0, trial: existing.trialLessons || 0
+                    });
+                } else { setInputData({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 }); }
+            }, [reportDate, allData.dailyReports, campus]);
+
+            const handleDateClick = (dateStr) => { setReportDate(dateStr); setIsInputModalOpen(true); };
+            const handleSaveReport = async () => {
+                if (!campus) return;
+                try {
+                    await setDoc(doc(db, "daily_reports", `${campus.id}_${reportDate}`), {
+                        campusId: campus.id, date: reportDate, weather: inputData.weather,
+                        flyers: Number(inputData.flyers), touchTry: Number(inputData.touch), trialLessons: Number(inputData.trial),
+                        updatedAt: serverTimestamp()
+                    });
+                    refreshData(); showNotify("日報を保存しました"); setIsInputModalOpen(false);
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+            const handlePlanChange = (month, field, value) => {
+                setPlanData(prev => {
+                    const newData = { ...prev };
+                    newData[month] = { ...newData[month], [field]: Number(value) };
+                    if (field === 'enrollments' || field === 'trials') {
+                        const enr = field === 'enrollments' ? Number(value) : (newData[month].enrollments || 0);
+                        const tri = field === 'trials' ? Number(value) : (newData[month].trials || 0);
+                        newData[month].rate = tri > 0 ? ((enr / tri) * 100).toFixed(1) : 0;
+                    }
+                    return newData;
+                });
+            };
+            const handleSavePlan = async () => {
+                if (!campus) return;
+                setIsSavingPlan(true);
+                try {
+                    await setDoc(doc(db, "campus_plans", `${campus.id}_${selectedYear}`), { campusId: campus.id, year: selectedYear, plans: planData, updatedAt: serverTimestamp() });
+                    showNotify("年間計画を保存しました");
+                } catch (e) { showNotify("保存失敗: " + e.message, 'error'); } finally { setIsSavingPlan(false); }
+            };
+            const handleCsvUpload = async (parsedData) => {
+                if (!campus) return;
+                setUploading(true);
+                try {
+                    const batchSize = 450; 
+                    const q = query(collection(db, "financials"), where("campusId", "==", campus.id), where("fiscalYear", "==", uploadTargetYear));
+                    const snapshot = await getDocs(q);
+                    const chunks = [];
+                    for (let i = 0; i < snapshot.docs.length; i += batchSize) chunks.push(snapshot.docs.slice(i, i + batchSize));
+                    for (const chunk of chunks) { const deleteBatch = writeBatch(db); chunk.forEach(doc => deleteBatch.delete(doc.ref)); await deleteBatch.commit(); }
+                    const insertChunks = [];
+                    for (let i = 0; i < parsedData.length; i += batchSize) insertChunks.push(parsedData.slice(i, i + batchSize));
+                    for (const chunk of insertChunks) {
+                        const insertBatch = writeBatch(db);
+                        chunk.forEach(item => {
+                            let tYear = Number(uploadTargetYear); if (item.month <= 3) tYear += 1;
+                            const dateStr = `${tYear}-${('0'+item.month).slice(-2)}-01`;
+                            const ref = doc(collection(db, "financials"));
+                            insertBatch.set(ref, { 
+                                date: dateStr, fiscalYear: uploadTargetYear, amount: item.amount, 
+                                category: item.category, subCategory: item.subCategory, accountCode: item.accountCode,
+                                campusId: campus.id, createdAt: serverTimestamp() 
+                            });
+                        });
+                        await insertBatch.commit();
+                    }
+                    await setDoc(doc(db, "financial_updates", `${campus.id}_${uploadTargetYear}`), { campusId: campus.id, fiscalYear: uploadTargetYear, updatedAt: serverTimestamp() });
+                    refreshData(); showNotify(`${parsedData.length}件のデータを取り込みました (重複削除済み)`);
+                } catch (e) { showNotify("エラー: " + e.message, 'error'); } finally { setUploading(false); }
+            };
+
+            if (!campus) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-brand-blue"/></div>;
+            const weatherMap = { sunny: {i:Sun,l:'晴',c:'text-orange-500'}, cloudy: {i:Cloud,l:'曇',c:'text-gray-500'}, rainy: {i:CloudRain,l:'雨',c:'text-blue-500'}, snowy: {i:Snowflake,l:'雪',c:'text-cyan-500'}, closed: {i:Ban,l:'休',c:'text-red-500'} };
+            
+            const isJanFebMar = ['1月', '2月', '3月'].includes(selectedMonth);
+            const displayCalendarYear = isJanFebMar ? Number(selectedYear) + 1 : Number(selectedYear);
+
+            return (
+                <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
+                    {isInputModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay backdrop-blur-sm transition-opacity" onClick={() => setIsInputModalOpen(false)}>
+                            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full animate-in zoom-in-95 duration-200 p-6" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold text-gray-800 flex items-center"><PenTool className="w-5 h-5 mr-2 text-brand-blue"/> 日報入力</h3>
+                                    <div className="text-sm font-bold text-gray-500">{reportDate}</div>
+                                </div>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 block mb-2">天気</label>
+                                        <div className="flex gap-2 justify-between">
+                                            {Object.entries(weatherMap).map(([k,v])=><button key={k} onClick={()=>setInputData({...inputData,weather:k})} className={`flex-1 py-2 rounded-lg border flex flex-col items-center justify-center transition-colors ${inputData.weather===k?'bg-blue-50 border-brand-blue':'border-gray-100 hover:bg-gray-50'}`}><v.i className={`w-4 h-4 mb-1 ${v.c}`}/><span className="text-[10px] font-bold text-gray-500">{v.l}</span></button>)}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-xs font-bold text-gray-400 block mb-1">門配数</label><input type="number" value={inputData.flyers} onChange={e=>setInputData({...inputData,flyers:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                        <div><label className="text-xs font-bold text-gray-400 block mb-1">T&T数</label><input type="number" value={inputData.touch} onChange={e=>setInputData({...inputData,touch:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                    </div>
+                                    <div><label className="text-xs font-bold text-gray-400 block mb-1">体験会実施数</label><input type="number" value={inputData.trial} onChange={e=>setInputData({...inputData,trial:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                    <div className="flex gap-3 mt-6">
+                                        <button onClick={() => setIsInputModalOpen(false)} className="flex-1 py-3 text-gray-500 hover:bg-gray-100 rounded-lg font-bold">キャンセル</button>
+                                        <button onClick={handleSaveReport} className="flex-1 bg-brand-orange text-white font-bold py-3 rounded-lg hover:bg-orange-600 shadow-sm flex items-center justify-center"><Save className="w-4 h-4 mr-2"/>保存</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col z-10">
+                        <div className="p-6 border-b border-gray-100">
+                            <div className="flex items-center space-x-2 mb-1"><School className="w-5 h-5 text-brand-orange" /><span className="font-bold text-sm text-brand-orange">校舎コンソール</span></div>
+                            <h2 className="text-xl font-bold text-gray-800 truncate">{campus.name}</h2>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-1">
+                            {[{id:'daily',l:'日報入力',i:Calendar}, {id:'plan',l:'計画策定',i:FileText}, {id:'finance',l:'収支取込',i:FileSpreadsheet}].map(t => (
+                                <button key={t.id} onClick={() => setActiveTab(t.id)} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === t.id ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                    <t.i className="w-5 h-5 mr-3" />{t.l}
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="p-4 border-t border-gray-100"><button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2"><LogOut className="w-4 h-4 mr-2" /> 戻る</button></div>
+                    </aside>
+                    <main className="flex-1 overflow-y-auto">
+                        <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
+                            <h2 className="text-xl font-bold text-gray-800">{{daily:'日報管理', plan:'計画策定', finance:'収支管理'}[activeTab]}</h2>
+                            <div className="flex items-center space-x-4">
+                                <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-orange outline-none">
+                                    {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
+                                </select>
+                                <div className="w-8 h-8 rounded-full bg-brand-blue flex items-center justify-center text-white font-bold text-xs">SC</div>
+                            </div>
+                        </header>
+                        <div className="p-8 max-w-5xl mx-auto">
+                            {activeTab === 'daily' && (
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in">
+                                    <div className="lg:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between mb-4">
+                                            <h3 className="font-bold text-gray-700 flex items-center"><Calendar className="w-4 h-4 mr-2"/> {displayCalendarYear}年 {selectedMonth}</h3>
+                                            <div className="flex gap-1">{MONTHS_LIST.map(m=><button key={m} onClick={()=>setSelectedMonth(m)} className={`text-xs px-2 py-1 rounded ${selectedMonth===m?'bg-brand-orange text-white':'text-gray-400 hover:bg-gray-100'}`}>{m}</button>)}</div>
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                                            {['日','月','火','水','木','金','土'].map((d,i)=><div key={i} className="bg-gray-50 text-center py-2 text-xs font-bold text-gray-500">{d}</div>)}
+                                            {Array.from({length:31},(_,i)=>i+1).map(d=>{
+                                                const targetMonthIdx = MONTHS_LIST.indexOf(selectedMonth);
+                                                let tYear = Number(selectedYear); let tMonth = targetMonthIdx + 3; if (tMonth > 11) { tMonth -= 12; tYear++; }
+                                                const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+d).slice(-2)}`; 
+                                                const report = allData.dailyReports.find(r => r.campusId === campus.id && r.date === dateStr);
+                                                const WeatherIcon = report && weatherMap[report.weather] ? weatherMap[report.weather].i : null;
+                                                const isToday = dateStr === formatDateStr(new Date());
+                                                return (
+                                                    <div key={d} onClick={()=>handleDateClick(dateStr)} className={`bg-white h-24 p-1 cursor-pointer hover:bg-blue-50 relative flex flex-col justify-between border border-transparent hover:border-blue-200 ${isToday?'bg-blue-50/60':''}`}>
+                                                        <div className="flex justify-between items-start">
+                                                            <span className={`text-xs font-bold ${isToday?'text-brand-blue':'text-gray-700'}`}>{d}</span>
+                                                            {WeatherIcon && <WeatherIcon className={`w-3 h-3 ${weatherMap[report.weather].c}`}/>}
+                                                        </div>
+                                                        {report && (
+                                                            <div className="text-[9px] text-gray-500 space-y-0.5">
+                                                                <div className="flex justify-between"><span>門配</span><span className="font-bold">{report.flyers}</span></div>
+                                                                <div className="flex justify-between"><span>T&T</span><span className="font-bold">{report.touchTry}</span></div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab === 'plan' && (
+                                <div className="space-y-6 animate-in fade-in">
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="font-bold text-gray-800 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-brand-orange"/> {selectedYear}年度 計画入力</h3>
+                                            <button onClick={handleSavePlan} disabled={isSavingPlan} className="bg-brand-blue text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 flex items-center">{isSavingPlan ? <Loader2 className="animate-spin w-4 h-4 mr-2"/> : <Save className="w-4 h-4 mr-2"/>} 保存する</button>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left border-collapse">
+                                                <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200">
+                                                    <tr><th className="px-4 py-3 min-w-[80px]">月度</th><th className="px-4 py-3 min-w-[100px]">目標入会</th><th className="px-4 py-3 min-w-[100px]">体験会数</th><th className="px-4 py-3 min-w-[100px]">門配目標</th><th className="px-4 py-3 min-w-[80px]">入会率</th></tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {MONTHS_LIST.map((m) => (
+                                                        <tr key={m} className="hover:bg-gray-50">
+                                                            <td className="px-4 py-2 font-bold text-gray-700">{m}</td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.enrollments || 0} onChange={(e)=>handlePlanChange(m, 'enrollments', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.trials || 0} onChange={(e)=>handlePlanChange(m, 'trials', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.flyers || 0} onChange={(e)=>handlePlanChange(m, 'flyers', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2 text-right font-mono text-gray-500">{planData[m]?.rate || 0}%</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab === 'finance' && (
+                                <div className="space-y-8 bg-white p-8 rounded-xl shadow-sm border border-gray-100 animate-in fade-in">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-lg font-bold text-gray-800 flex items-center"><FileSpreadsheet className="w-5 h-5 mr-2 text-brand-orange"/> 収支CSV取込 (横持ち形式)</h3>
+                                        {lastUploadInfo && (
+                                            <div className="flex items-center text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full border border-gray-200">
+                                                <Clock className="w-3 h-3 mr-1.5" />
+                                                最終更新: <span className="font-bold ml-1">{lastUploadInfo.toLocaleString()}</span>
+                                                <span className="ml-1 text-gray-400">({uploadTargetYear}年度)</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="max-w-xl mx-auto"><CsvUploader onUpload={handleCsvUpload} isUploading={uploading} targetYear={uploadTargetYear} setTargetYear={setUploadTargetYear} /></div>
+                                    <div className="text-sm text-gray-500 bg-gray-50 p-4 rounded-lg">
+                                        <p className="font-bold mb-2">取込ルール:</p>
+                                        <ul className="list-disc list-inside space-y-1">
+                                            <li><span className="font-bold text-red-500">重要:</span> 詳細分析のため「勘定コード」を保存します。以前のデータを上書き更新してください。</li>
+                                            <li>取り込みを実行すると、選択した年度の既存データは全て上書き(削除→再登録)されます。</li>
+                                            <li>5系:売上, 61:広告, 62:販売, 63:人件費, 64:設備, 65:管理, 69:本社 に自動分類されます。</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // 4. School Console Component (DEFINED BEFORE APP)
+        // ==========================================
+        function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
+            const [activeTab, setActiveTab] = useState('daily');
+            const [selectedMonth, setSelectedMonth] = useState(() => { const d = new Date(); return (d.getMonth() + 1) + '月'; });
+            const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
+            const [inputData, setInputData] = useState({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
+            const [uploading, setUploading] = useState(false);
+            const [planData, setPlanData] = useState({});
+            const [isSavingPlan, setIsSavingPlan] = useState(false);
+            const [uploadTargetYear, setUploadTargetYear] = useState(selectedYear);
+            const [isInputModalOpen, setIsInputModalOpen] = useState(false);
+
+            const lastUploadInfo = useMemo(() => {
+                if (!campus || !allData.financialUpdates) return null;
+                const update = allData.financialUpdates.find(u => u.campusId === campus.id && u.fiscalYear === uploadTargetYear);
+                return update ? parseDate(update.updatedAt) : null;
+            }, [campus, allData.financialUpdates, uploadTargetYear]);
+
+            useEffect(() => {
+                if (activeTab === 'plan' && campus) {
+                    const fetchPlan = async () => {
+                        try {
+                            const docRef = doc(db, "campus_plans", `${campus.id}_${selectedYear}`);
+                            const docSnap = await getDoc(docRef);
+                            setPlanData(docSnap.exists() ? docSnap.data().plans : createInitialPlanData());
+                        } catch (e) { console.error(e); }
+                    };
+                    fetchPlan();
+                }
+            }, [activeTab, campus, selectedYear]);
+
+            const createInitialPlanData = () => {
+                return MONTHS_LIST.reduce((acc, month) => {
+                    acc[month] = { enrollments: 0, trials: 0, touchTry: 0, flyers: 0, rate: 0 };
+                    return acc;
+                }, {});
+            };
+
+            useEffect(() => {
+                if (!campus) return;
+                const existing = allData.dailyReports.find(r => r.campusId === campus.id && r.date === reportDate);
+                if (existing) {
+                    setInputData({
+                        weather: existing.weather || 'sunny', flyers: existing.flyers || 0, touch: existing.touchTry || 0, trial: existing.trialLessons || 0
+                    });
+                } else { setInputData({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 }); }
+            }, [reportDate, allData.dailyReports, campus]);
+
+            const handleDateClick = (dateStr) => { setReportDate(dateStr); setIsInputModalOpen(true); };
+            const handleSaveReport = async () => {
+                if (!campus) return;
+                try {
+                    await setDoc(doc(db, "daily_reports", `${campus.id}_${reportDate}`), {
+                        campusId: campus.id, date: reportDate, weather: inputData.weather,
+                        flyers: Number(inputData.flyers), touchTry: Number(inputData.touch), trialLessons: Number(inputData.trial),
+                        updatedAt: serverTimestamp()
+                    });
+                    refreshData(); showNotify("日報を保存しました"); setIsInputModalOpen(false);
+                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+            };
+            const handlePlanChange = (month, field, value) => {
+                setPlanData(prev => {
+                    const newData = { ...prev };
+                    newData[month] = { ...newData[month], [field]: Number(value) };
+                    if (field === 'enrollments' || field === 'trials') {
+                        const enr = field === 'enrollments' ? Number(value) : (newData[month].enrollments || 0);
+                        const tri = field === 'trials' ? Number(value) : (newData[month].trials || 0);
+                        newData[month].rate = tri > 0 ? ((enr / tri) * 100).toFixed(1) : 0;
+                    }
+                    return newData;
+                });
+            };
+            const handleSavePlan = async () => {
+                if (!campus) return;
+                setIsSavingPlan(true);
+                try {
+                    await setDoc(doc(db, "campus_plans", `${campus.id}_${selectedYear}`), { campusId: campus.id, year: selectedYear, plans: planData, updatedAt: serverTimestamp() });
+                    showNotify("年間計画を保存しました");
+                } catch (e) { showNotify("保存失敗: " + e.message, 'error'); } finally { setIsSavingPlan(false); }
+            };
+            const handleCsvUpload = async (parsedData) => {
+                if (!campus) return;
+                setUploading(true);
+                try {
+                    const batchSize = 450; 
+                    const q = query(collection(db, "financials"), where("campusId", "==", campus.id), where("fiscalYear", "==", uploadTargetYear));
+                    const snapshot = await getDocs(q);
+                    const chunks = [];
+                    for (let i = 0; i < snapshot.docs.length; i += batchSize) chunks.push(snapshot.docs.slice(i, i + batchSize));
+                    for (const chunk of chunks) { const deleteBatch = writeBatch(db); chunk.forEach(doc => deleteBatch.delete(doc.ref)); await deleteBatch.commit(); }
+                    const insertChunks = [];
+                    for (let i = 0; i < parsedData.length; i += batchSize) insertChunks.push(parsedData.slice(i, i + batchSize));
+                    for (const chunk of insertChunks) {
+                        const insertBatch = writeBatch(db);
+                        chunk.forEach(item => {
+                            let tYear = Number(uploadTargetYear); if (item.month <= 3) tYear += 1;
+                            const dateStr = `${tYear}-${('0'+item.month).slice(-2)}-01`;
+                            const ref = doc(collection(db, "financials"));
+                            insertBatch.set(ref, { 
+                                date: dateStr, fiscalYear: uploadTargetYear, amount: item.amount, 
+                                category: item.category, subCategory: item.subCategory, accountCode: item.accountCode,
+                                campusId: campus.id, createdAt: serverTimestamp() 
+                            });
+                        });
+                        await insertBatch.commit();
+                    }
+                    await setDoc(doc(db, "financial_updates", `${campus.id}_${uploadTargetYear}`), { campusId: campus.id, fiscalYear: uploadTargetYear, updatedAt: serverTimestamp() });
+                    refreshData(); showNotify(`${parsedData.length}件のデータを取り込みました (重複削除済み)`);
+                } catch (e) { showNotify("エラー: " + e.message, 'error'); } finally { setUploading(false); }
+            };
+
+            if (!campus) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-brand-blue"/></div>;
+            const weatherMap = { sunny: {i:Sun,l:'晴',c:'text-orange-500'}, cloudy: {i:Cloud,l:'曇',c:'text-gray-500'}, rainy: {i:CloudRain,l:'雨',c:'text-blue-500'}, snowy: {i:Snowflake,l:'雪',c:'text-cyan-500'}, closed: {i:Ban,l:'休',c:'text-red-500'} };
+            
+            const isJanFebMar = ['1月', '2月', '3月'].includes(selectedMonth);
+            const displayCalendarYear = isJanFebMar ? Number(selectedYear) + 1 : Number(selectedYear);
+
+            return (
+                <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
+                    {isInputModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay backdrop-blur-sm transition-opacity" onClick={() => setIsInputModalOpen(false)}>
+                            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full animate-in zoom-in-95 duration-200 p-6" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold text-gray-800 flex items-center"><PenTool className="w-5 h-5 mr-2 text-brand-blue"/> 日報入力</h3>
+                                    <div className="text-sm font-bold text-gray-500">{reportDate}</div>
+                                </div>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 block mb-2">天気</label>
+                                        <div className="flex gap-2 justify-between">
+                                            {Object.entries(weatherMap).map(([k,v])=><button key={k} onClick={()=>setInputData({...inputData,weather:k})} className={`flex-1 py-2 rounded-lg border flex flex-col items-center justify-center transition-colors ${inputData.weather===k?'bg-blue-50 border-brand-blue':'border-gray-100 hover:bg-gray-50'}`}><v.i className={`w-4 h-4 mb-1 ${v.c}`}/><span className="text-[10px] font-bold text-gray-500">{v.l}</span></button>)}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-xs font-bold text-gray-400 block mb-1">門配数</label><input type="number" value={inputData.flyers} onChange={e=>setInputData({...inputData,flyers:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                        <div><label className="text-xs font-bold text-gray-400 block mb-1">T&T数</label><input type="number" value={inputData.touch} onChange={e=>setInputData({...inputData,touch:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                    </div>
+                                    <div><label className="text-xs font-bold text-gray-400 block mb-1">体験会実施数</label><input type="number" value={inputData.trial} onChange={e=>setInputData({...inputData,trial:e.target.value})} className="w-full border rounded p-2 text-right font-bold text-gray-700"/></div>
+                                    <div className="flex gap-3 mt-6">
+                                        <button onClick={() => setIsInputModalOpen(false)} className="flex-1 py-3 text-gray-500 hover:bg-gray-100 rounded-lg font-bold">キャンセル</button>
+                                        <button onClick={handleSaveReport} className="flex-1 bg-brand-orange text-white font-bold py-3 rounded-lg hover:bg-orange-600 shadow-sm flex items-center justify-center"><Save className="w-4 h-4 mr-2"/>保存</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col z-10">
+                        <div className="p-6 border-b border-gray-100">
+                            <div className="flex items-center space-x-2 mb-1"><School className="w-5 h-5 text-brand-orange" /><span className="font-bold text-sm text-brand-orange">校舎コンソール</span></div>
+                            <h2 className="text-xl font-bold text-gray-800 truncate">{campus.name}</h2>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-1">
+                            {[{id:'daily',l:'日報入力',i:Calendar}, {id:'plan',l:'計画策定',i:FileText}, {id:'finance',l:'収支取込',i:FileSpreadsheet}].map(t => (
+                                <button key={t.id} onClick={() => setActiveTab(t.id)} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === t.id ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/30' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                    <t.i className="w-5 h-5 mr-3" />{t.l}
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="p-4 border-t border-gray-100"><button onClick={onBack} className="flex items-center text-gray-400 hover:text-gray-600 text-sm w-full px-4 py-2"><LogOut className="w-4 h-4 mr-2" /> 戻る</button></div>
+                    </aside>
+                    <main className="flex-1 overflow-y-auto">
+                        <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
+                            <h2 className="text-xl font-bold text-gray-800">{{daily:'日報管理', plan:'計画策定', finance:'収支管理'}[activeTab]}</h2>
+                            <div className="flex items-center space-x-4">
+                                <select value={selectedYear} onChange={(e)=>setSelectedYear(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-brand-orange outline-none">
+                                    {YEARS_LIST.map(y => <option key={y} value={y}>{y}年度</option>)}
+                                </select>
+                                <div className="w-8 h-8 rounded-full bg-brand-blue flex items-center justify-center text-white font-bold text-xs">SC</div>
+                            </div>
+                        </header>
+                        <div className="p-8 max-w-5xl mx-auto">
+                            {activeTab === 'daily' && (
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in">
+                                    <div className="lg:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between mb-4">
+                                            <h3 className="font-bold text-gray-700 flex items-center"><Calendar className="w-4 h-4 mr-2"/> {displayCalendarYear}年 {selectedMonth}</h3>
+                                            <div className="flex gap-1">{MONTHS_LIST.map(m=><button key={m} onClick={()=>setSelectedMonth(m)} className={`text-xs px-2 py-1 rounded ${selectedMonth===m?'bg-brand-orange text-white':'text-gray-400 hover:bg-gray-100'}`}>{m}</button>)}</div>
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                                            {['日','月','火','水','木','金','土'].map((d,i)=><div key={i} className="bg-gray-50 text-center py-2 text-xs font-bold text-gray-500">{d}</div>)}
+                                            {Array.from({length:31},(_,i)=>i+1).map(d=>{
+                                                const targetMonthIdx = MONTHS_LIST.indexOf(selectedMonth);
+                                                let tYear = Number(selectedYear); let tMonth = targetMonthIdx + 3; if (tMonth > 11) { tMonth -= 12; tYear++; }
+                                                const dateStr = `${tYear}-${('0'+(tMonth+1)).slice(-2)}-${('0'+d).slice(-2)}`; 
+                                                const report = allData.dailyReports.find(r => r.campusId === campus.id && r.date === dateStr);
+                                                const WeatherIcon = report && weatherMap[report.weather] ? weatherMap[report.weather].i : null;
+                                                const isToday = dateStr === formatDateStr(new Date());
+                                                return (
+                                                    <div key={d} onClick={()=>handleDateClick(dateStr)} className={`bg-white h-24 p-1 cursor-pointer hover:bg-blue-50 relative flex flex-col justify-between border border-transparent hover:border-blue-200 ${isToday?'bg-blue-50/60':''}`}>
+                                                        <div className="flex justify-between items-start">
+                                                            <span className={`text-xs font-bold ${isToday?'text-brand-blue':'text-gray-700'}`}>{d}</span>
+                                                            {WeatherIcon && <WeatherIcon className={`w-3 h-3 ${weatherMap[report.weather].c}`}/>}
+                                                        </div>
+                                                        {report && (
+                                                            <div className="text-[9px] text-gray-500 space-y-0.5">
+                                                                <div className="flex justify-between"><span>門配</span><span className="font-bold">{report.flyers}</span></div>
+                                                                <div className="flex justify-between"><span>T&T</span><span className="font-bold">{report.touchTry}</span></div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab === 'plan' && (
+                                <div className="space-y-6 animate-in fade-in">
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="font-bold text-gray-800 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-brand-orange"/> {selectedYear}年度 計画入力</h3>
+                                            <button onClick={handleSavePlan} disabled={isSavingPlan} className="bg-brand-blue text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 flex items-center">{isSavingPlan ? <Loader2 className="animate-spin w-4 h-4 mr-2"/> : <Save className="w-4 h-4 mr-2"/>} 保存する</button>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left border-collapse">
+                                                <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200">
+                                                    <tr><th className="px-4 py-3 min-w-[80px]">月度</th><th className="px-4 py-3 min-w-[100px]">目標入会</th><th className="px-4 py-3 min-w-[100px]">体験会数</th><th className="px-4 py-3 min-w-[100px]">門配目標</th><th className="px-4 py-3 min-w-[80px]">入会率</th></tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {MONTHS_LIST.map((m) => (
+                                                        <tr key={m} className="hover:bg-gray-50">
+                                                            <td className="px-4 py-2 font-bold text-gray-700">{m}</td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.enrollments || 0} onChange={(e)=>handlePlanChange(m, 'enrollments', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.trials || 0} onChange={(e)=>handlePlanChange(m, 'trials', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2"><input type="number" value={planData[m]?.flyers || 0} onChange={(e)=>handlePlanChange(m, 'flyers', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-right focus:bg-white focus:ring-1 focus:ring-brand-orange outline-none"/></td>
+                                                            <td className="px-4 py-2 text-right font-mono text-gray-500">{planData[m]?.rate || 0}%</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab === 'finance' && (
+                                <div className="space-y-8 bg-white p-8 rounded-xl shadow-sm border border-gray-100 animate-in fade-in">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-lg font-bold text-gray-800 flex items-center"><FileSpreadsheet className="w-5 h-5 mr-2 text-brand-orange"/> 収支CSV取込 (横持ち形式)</h3>
+                                        {lastUploadInfo && (
+                                            <div className="flex items-center text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full border border-gray-200">
+                                                <Clock className="w-3 h-3 mr-1.5" />
+                                                最終更新: <span className="font-bold ml-1">{lastUploadInfo.toLocaleString()}</span>
+                                                <span className="ml-1 text-gray-400">({uploadTargetYear}年度)</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="max-w-xl mx-auto"><CsvUploader onUpload={handleCsvUpload} isUploading={uploading} targetYear={uploadTargetYear} setTargetYear={setUploadTargetYear} /></div>
+                                    <div className="text-sm text-gray-500 bg-gray-50 p-4 rounded-lg">
+                                        <p className="font-bold mb-2">取込ルール:</p>
+                                        <ul className="list-disc list-inside space-y-1">
+                                            <li><span className="font-bold text-red-500">重要:</span> 詳細分析のため「勘定コード」を保存します。以前のデータを上書き更新してください。</li>
+                                            <li>取り込みを実行すると、選択した年度の既存データは全て上書き(削除→再登録)されます。</li>
+                                            <li>5系:売上, 61:広告, 62:販売, 63:人件費, 64:設備, 65:管理, 69:本社 に自動分類されます。</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // 5. App Component (DEFINED AFTER SchoolConsole)
         // ==========================================
         function App() {
             const [consoleMode, setConsoleMode] = useState('select'); 
             const [selectedCampusId, setSelectedCampusId] = useState(null);
             const [campusList, setCampusList] = useState([]);
-            
-            // 現在日付から初期年度を自動判定 (1-3月なら前年が年度)
-            const [selectedYear, setSelectedYear] = useState(() => {
-                const d = new Date();
-                return d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear();
-            });
-
+            const [selectedYear, setSelectedYear] = useState(() => { const d = new Date(); return d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear(); });
             const [notification, setNotification] = useState(null);
             const [isSyncing, setIsSyncing] = useState(false);
             const [lastUpdated, setLastUpdated] = useState(null);
@@ -781,7 +1178,7 @@
         }
 
         // ==========================================
-        // 5. HQ Console
+        // 6. HQ Console Component
         // ==========================================
         function HQConsole({ onBack, campusList, allData, selectedYear, setSelectedYear, refreshData, showNotify, isSyncing, lastUpdated, isUsingCache }) {
             const [activeTab, setActiveTab] = useState('dashboard');
@@ -791,16 +1188,12 @@
             const [newCampusId, setNewCampusId] = useState("");
             const [selectedHQCampusId, setSelectedHQCampusId] = useState('All');
             const [plViewCategory, setPlViewCategory] = useState('all');
-
             const [hoveredData, setHoveredData] = useState(null);
-            
             const [modalOpen, setModalOpen] = useState(false);
             const [modalData, setModalData] = useState([]);
             const [modalTitle, setModalTitle] = useState("");
             const [modalColor, setModalColor] = useState("");
             const [selectedPLItem, setSelectedPLItem] = useState(null);
-
-            // Campus Editing State
             const [editModalOpen, setEditModalOpen] = useState(false);
             const [editingCampus, setEditingCampus] = useState(null);
             const [editName, setEditName] = useState("");
@@ -818,20 +1211,13 @@
             const displayData = useMemo(() => {
                 if (viewMode === 'annual') return fullDashboardData;
                 if (viewMode === 'half' || viewMode === 'quarter') return aggregatePeriod(fullDashboardData, viewMode);
-                
                 const targetMonthData = fullDashboardData.find(m => m.name === selectedMonth);
                 if (!targetMonthData) return [];
-
-                if (viewMode === 'weekly') {
-                    return targetMonthData.weekly || [];
-                }
-
+                if (viewMode === 'weekly') return targetMonthData.weekly || [];
                 return targetMonthData.daily;
             }, [fullDashboardData, viewMode, selectedMonth]);
 
-            const monthDataForPL = useMemo(() => {
-                return fullDashboardData.find(m => m.name === selectedMonth);
-            }, [fullDashboardData, selectedMonth]);
+            const monthDataForPL = useMemo(() => { return fullDashboardData.find(m => m.name === selectedMonth); }, [fullDashboardData, selectedMonth]);
 
             const totals = useMemo(() => {
                 if (viewMode === 'monthly' && monthDataForPL) {
@@ -841,39 +1227,25 @@
                         profit: monthDataForPL.profit, prevProfit: monthDataForPL.prevProfit,
                         newEnrollments: monthDataForPL.newEnrollments, prevNewEnrollments: monthDataForPL.prevNewEnrollments,
                         withdrawals: monthDataForPL.withdrawals, prevWithdrawals: monthDataForPL.prevWithdrawals,
-                        transferIns: monthDataForPL.transferIns,
-                        returns: monthDataForPL.returns,
-                        graduates: Math.abs(monthDataForPL.graduates_neg || 0),
-                        transfers: Math.abs(monthDataForPL.transfers_neg || 0),
-                        flyers: monthDataForPL.flyers,
-                        trialApp: monthDataForPL.trialApp,
-                        trialExec: monthDataForPL.trialExec,
-                        partTime: monthDataForPL.partTime || 0,
-                        students: monthDataForPL.students
+                        transferIns: monthDataForPL.transferIns, returns: monthDataForPL.returns,
+                        graduates: Math.abs(monthDataForPL.graduates_neg || 0), transfers: Math.abs(monthDataForPL.transfers_neg || 0),
+                        flyers: monthDataForPL.flyers, trialApp: monthDataForPL.trialApp, trialExec: monthDataForPL.trialExec,
+                        partTime: monthDataForPL.partTime || 0, students: monthDataForPL.students
                     };
                 }
-
                 return displayData.reduce((acc, curr) => ({
                     revenue: acc.revenue + (curr.revenue || 0), prevRevenue: acc.prevRevenue + (curr.prevRevenue || 0),
                     expense: acc.expense + (curr.expense || 0), prevExpense: acc.prevExpense + (curr.prevExpense || 0),
                     profit: acc.profit + (curr.profit || 0), prevProfit: acc.prevProfit + (curr.prevProfit || 0),
                     newEnrollments: acc.newEnrollments + (curr.newEnrollments || 0), prevNewEnrollments: acc.prevNewEnrollments + (curr.prevNewEnrollments || 0),
                     withdrawals: acc.withdrawals + (curr.withdrawals || 0), prevWithdrawals: acc.prevWithdrawals + (curr.prevWithdrawals || 0),
-                    
-                    transferIns: acc.transferIns + (curr.transferIns || 0),
-                    returns: acc.returns + (curr.returns || 0),
-                    graduates: acc.graduates + Math.abs(curr.graduates_neg || 0),
-                    transfers: acc.transfers + Math.abs(curr.transfers_neg || 0),
-                    flyers: acc.flyers + (curr.flyers || 0),
-                    trialApp: acc.trialApp + (curr.trialApp || 0),
-                    trialExec: acc.trialExec + (curr.trialExec || 0),
+                    transferIns: acc.transferIns + (curr.transferIns || 0), returns: acc.returns + (curr.returns || 0),
+                    graduates: acc.graduates + Math.abs(curr.graduates_neg || 0), transfers: acc.transfers + Math.abs(curr.transfers_neg || 0),
+                    flyers: acc.flyers + (curr.flyers || 0), trialApp: acc.trialApp + (curr.trialApp || 0), trialExec: acc.trialExec + (curr.trialExec || 0),
                     partTime: acc.partTime + (curr.partTime || 0)
                 }), { 
-                    revenue: 0, prevRevenue: 0, 
-                    expense: 0, prevExpense: 0, 
-                    profit: 0, prevProfit: 0, 
-                    newEnrollments: 0, prevNewEnrollments: 0, 
-                    withdrawals: 0, prevWithdrawals: 0,
+                    revenue: 0, prevRevenue: 0, expense: 0, prevExpense: 0, profit: 0, prevProfit: 0, 
+                    newEnrollments: 0, prevNewEnrollments: 0, withdrawals: 0, prevWithdrawals: 0,
                     transferIns: 0, returns: 0, graduates: 0, transfers: 0, flyers: 0, trialApp: 0, trialExec: 0, partTime: 0 
                 });
             }, [displayData, viewMode, monthDataForPL]);
@@ -912,99 +1284,44 @@
                         profit: hoveredData.profit || 0, prevProfit: hoveredData.prevProfit,
                         newEnrollments: hoveredData.newEnrollments || 0, prevNewEnrollments: hoveredData.prevNewEnrollments,
                         withdrawals: hoveredData.withdrawals || 0, prevWithdrawals: hoveredData.prevWithdrawals,
-                        
-                        partTime: hoveredData.partTime || 0,
-                        totalStudents: hoveredData.students || 0, 
-                        periodLabel: hoveredData.name
+                        partTime: hoveredData.partTime || 0, totalStudents: hoveredData.students || 0, periodLabel: hoveredData.name
                     };
                 } else {
                     return {
-                        ...totals,
-                        totalStudents: currentTotalStudents,
-                        periodLabel: viewLabel === '月度' ? selectedMonth : viewLabel
+                        ...totals, totalStudents: currentTotalStudents, periodLabel: viewLabel === '月度' ? selectedMonth : viewLabel
                     };
                 }
             }, [hoveredData, totals, currentTotalStudents, viewLabel, selectedMonth]);
 
-            const calcYoY = (curr, prev) => {
-                if (!prev || prev === 0) return null;
-                return ((curr / prev) * 100).toFixed(1);
-            };
-
-            const handleChartHover = (state) => {
-                if (state && state.activePayload && state.activePayload.length > 0) {
-                    setHoveredData(state.activePayload[0].payload);
-                }
-            };
-        
-            const handleChartLeave = () => {
-                setHoveredData(null);
-            };
-
+            const calcYoY = (curr, prev) => { if (!prev || prev === 0) return null; return ((curr / prev) * 100).toFixed(1); };
+            const handleChartHover = (state) => { if (state && state.activePayload && state.activePayload.length > 0) { setHoveredData(state.activePayload[0].payload); } };
+            const handleChartLeave = () => { setHoveredData(null); };
             const openDetailModal = (categoryKey, monthData) => {
                 if (!monthData || !monthData.detailItems || !monthData.detailItems[categoryKey]) return;
                 setModalTitle(`${monthData.name} - ${CATEGORY_MAP[categoryKey].label}`);
-                setModalColor(CATEGORY_MAP[categoryKey].color);
-                setModalData(monthData.detailItems[categoryKey]);
-                setModalOpen(true);
+                setModalColor(CATEGORY_MAP[categoryKey].color); setModalData(monthData.detailItems[categoryKey]); setModalOpen(true);
             };
-
-            const onBarClick = (data, idx, e, catKey) => {
-                openDetailModal(catKey, data);
-            };
-
+            const onBarClick = (data, idx, e, catKey) => { openDetailModal(catKey, data); };
             const handleAddCampus = async () => {
                 if (!newCampusId || !newCampusName) return showNotify("必須項目が空です", 'error');
-                try {
-                    await setDoc(doc(db, "campuses", newCampusId), { id: newCampusId, name: newCampusName, createdAt: serverTimestamp() });
-                    setNewCampusId(""); setNewCampusName("");
-                    refreshData(); 
-                    showNotify("校舎を追加しました");
-                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+                try { await setDoc(doc(db, "campuses", newCampusId), { id: newCampusId, name: newCampusName, createdAt: serverTimestamp() }); setNewCampusId(""); setNewCampusName(""); refreshData(); showNotify("校舎を追加しました"); } catch(e) { showNotify("エラー: " + e.message, 'error'); }
             };
-
             const handleDeleteCampus = async (id, name) => {
                 if (!confirm(`${name} を削除しますか？`)) return;
-                try {
-                    await deleteDoc(doc(db, "campuses", id));
-                    refreshData(); 
-                    showNotify("校舎を削除しました");
-                } catch(e) { showNotify("エラー: " + e.message, 'error'); }
+                try { await deleteDoc(doc(db, "campuses", id)); refreshData(); showNotify("校舎を削除しました"); } catch(e) { showNotify("エラー: " + e.message, 'error'); }
             };
-
-            const openEditCampus = (campus) => {
-                setEditingCampus(campus);
-                setEditName(campus.name);
-                setEditSheetName(campus.sheetName || "");
-                setEditModalOpen(true);
-            };
-
+            const openEditCampus = (campus) => { setEditingCampus(campus); setEditName(campus.name); setEditSheetName(campus.sheetName || ""); setEditModalOpen(true); };
             const handleUpdateCampus = async () => {
                 if (!editingCampus) return;
-                try {
-                    await updateDoc(doc(db, "campuses", editingCampus.id), {
-                        name: editName,
-                        sheetName: editSheetName,
-                        updatedAt: serverTimestamp()
-                    });
-                    setEditModalOpen(false);
-                    setEditingCampus(null);
-                    refreshData();
-                    showNotify("校舎情報を更新しました");
-                } catch (e) {
-                    showNotify("更新エラー: " + e.message, 'error');
-                }
+                try { await updateDoc(doc(db, "campuses", editingCampus.id), { name: editName, sheetName: editSheetName, updatedAt: serverTimestamp() }); setEditModalOpen(false); setEditingCampus(null); refreshData(); showNotify("校舎情報を更新しました"); } catch (e) { showNotify("更新エラー: " + e.message, 'error'); }
             };
 
-            // Custom Tick for Weekly XAxis with Date Range
             const WeeklyAxisTick = ({ x, y, payload }) => {
                 const item = displayData.find(d => d.name === payload.value);
                 return (
                     <g transform={`translate(${x},${y})`}>
                         <text x={0} y={0} dy={16} textAnchor="middle" fill="#666" fontSize={12} fontWeight="bold">{payload.value}</text>
-                        {item && item.label && (
-                            <text x={0} y={0} dy={30} textAnchor="middle" fill="#94a3b8" fontSize={10}>{item.label}</text>
-                        )}
+                        {item && item.label && <text x={0} y={0} dy={30} textAnchor="middle" fill="#94a3b8" fontSize={10}>{item.label}</text>}
                     </g>
                 );
             };
@@ -1015,47 +1332,28 @@
                 const processed = displayData.map(d => {
                     const base = { name: d.name };
                     const items = d.detailItems ? d.detailItems[plViewCategory] || [] : [];
-                    items.forEach(item => {
-                        base[item.name] = item.value;
-                        uniqueKeys.add(item.name);
-                    });
+                    items.forEach(item => { base[item.name] = item.value; uniqueKeys.add(item.name); });
                     return base;
                 });
                 return { data: processed, keys: Array.from(uniqueKeys) };
             }, [displayData, plViewCategory]);
 
-
             const viewLabel = { 'annual': '年度', 'half': '半期', 'quarter': '四半期', 'monthly': '月度', 'weekly': '週次' }[viewMode];
             const availableViewModes = ['annual', 'half', 'quarter', 'monthly'];
             if (activeTab === 'students') availableViewModes.push('weekly');
-
-            const handlePLRowClick = (item) => {
-                if (!monthDataForPL) return;
-                if (item.id === 'revenue' || item.id === 'profit') return;
-                setSelectedPLItem(item);
-            };
+            const handlePLRowClick = (item) => { if (!monthDataForPL) return; if (item.id === 'revenue' || item.id === 'profit') return; setSelectedPLItem(item); };
 
             return (
                 <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
                     <DetailModal isOpen={modalOpen} onClose={()=>setModalOpen(false)} data={modalData} title={modalTitle} color={modalColor} />
-                    
                     {editModalOpen && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay backdrop-blur-sm transition-opacity" onClick={() => setEditModalOpen(false)}>
                             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Edit2 className="w-5 h-5 mr-2 text-brand-blue"/> 校舎情報の修正</h3>
                                 <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">校舎ID (変更不可)</label>
-                                        <input type="text" value={editingCampus?.id} disabled className="w-full bg-gray-100 border border-gray-200 rounded px-3 py-2 text-gray-500 text-sm" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">校舎名</label>
-                                        <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-brand-blue outline-none" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">連携名 (Spreadsheet)</label>
-                                        <input type="text" value={editSheetName} onChange={e => setEditSheetName(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-brand-blue outline-none" />
-                                    </div>
+                                    <div><label className="block text-xs font-bold text-gray-500 mb-1">校舎ID (変更不可)</label><input type="text" value={editingCampus?.id} disabled className="w-full bg-gray-100 border border-gray-200 rounded px-3 py-2 text-gray-500 text-sm" /></div>
+                                    <div><label className="block text-xs font-bold text-gray-500 mb-1">校舎名</label><input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-brand-blue outline-none" /></div>
+                                    <div><label className="block text-xs font-bold text-gray-500 mb-1">連携名 (Spreadsheet)</label><input type="text" value={editSheetName} onChange={e => setEditSheetName(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-brand-blue outline-none" /></div>
                                     <div className="flex gap-3 pt-4">
                                         <button onClick={() => setEditModalOpen(false)} className="flex-1 py-2 text-gray-500 hover:bg-gray-100 rounded-lg">キャンセル</button>
                                         <button onClick={handleUpdateCampus} className="flex-1 bg-brand-blue text-white py-2 rounded-lg hover:bg-blue-700">更新する</button>
@@ -1064,7 +1362,6 @@
                             </div>
                         </div>
                     )}
-
                     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col z-10">
                         <div className="p-6 border-b border-gray-100 flex items-center space-x-3">
                             <div className="w-8 h-8 bg-brand-blue rounded flex items-center justify-center"><LayoutDashboard className="w-5 h-5 text-white" /></div>
@@ -1118,59 +1415,16 @@
                             </div>
                         </header>
                         <div className="p-8 max-w-7xl mx-auto">
-                            {/* Dashboard (Summary) View - StatCard Update with Custom Icon URLs & YoY */}
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-                                        <StatCard 
-                                            title="売上" 
-                                            value={formatYen(currentViewData.revenue)} 
-                                            subValue={currentViewData.periodLabel} 
-                                            yoy={calcYoY(currentViewData.revenue, currentViewData.prevRevenue)}
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg" 
-                                            colorClass="text-brand-blue" 
-                                        />
-                                        <StatCard 
-                                            title="費用" 
-                                            value={formatYen(currentViewData.expense)} 
-                                            subValue={currentViewData.periodLabel} 
-                                            yoy={calcYoY(currentViewData.expense, currentViewData.prevExpense)}
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_72e22ba6-81fa-4b3e-abf5-23d886ad1dea.svg" 
-                                            colorClass="text-rose-500" 
-                                        />
-                                        <StatCard 
-                                            title="営業利益" 
-                                            value={formatYen(currentViewData.profit)} 
-                                            subValue={currentViewData.periodLabel} 
-                                            yoy={calcYoY(currentViewData.profit, currentViewData.prevProfit)}
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_33bb072f-fe8f-4a20-8e5a-0bc5f53bde3d.svg" 
-                                            colorClass="text-emerald-500" 
-                                        />
-                                        <StatCard 
-                                            title="入会数" 
-                                            value={`${currentViewData.newEnrollments}名`} 
-                                            subValue={currentViewData.periodLabel} 
-                                            yoy={calcYoY(currentViewData.newEnrollments, currentViewData.prevNewEnrollments)}
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_c7c5b948-913f-4f31-903b-c8a91774107f.svg" 
-                                            colorClass="text-emerald-500" 
-                                        />
-                                        <StatCard 
-                                            title="退会数" 
-                                            value={`${currentViewData.withdrawals}名`} 
-                                            subValue={currentViewData.periodLabel} 
-                                            yoy={calcYoY(currentViewData.withdrawals, currentViewData.prevWithdrawals)}
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_28d76d55-88ab-48e9-b098-dc838ba040c2.svg" 
-                                            colorClass="text-rose-500" 
-                                        />
-                                        <StatCard 
-                                            title="在籍生徒数" 
-                                            value={`${currentViewData.totalStudents}名`} 
-                                            subValue="期間末" 
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_cd586213-916c-4b50-b0c3-deb64e7fdd8a.svg" 
-                                            colorClass="text-brand-blue" 
-                                        />
+                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} yoy={calcYoY(currentViewData.revenue, currentViewData.prevRevenue)} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg" colorClass="text-brand-blue" />
+                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} yoy={calcYoY(currentViewData.expense, currentViewData.prevExpense)} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_72e22ba6-81fa-4b3e-abf5-23d886ad1dea.svg" colorClass="text-rose-500" />
+                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} yoy={calcYoY(currentViewData.profit, currentViewData.prevProfit)} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_33bb072f-fe8f-4a20-8e5a-0bc5f53bde3d.svg" colorClass="text-emerald-500" />
+                                        <StatCard title="入会数" value={`${currentViewData.newEnrollments}名`} subValue={currentViewData.periodLabel} yoy={calcYoY(currentViewData.newEnrollments, currentViewData.prevNewEnrollments)} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_c7c5b948-913f-4f31-903b-c8a91774107f.svg" colorClass="text-emerald-500" />
+                                        <StatCard title="退会数" value={`${currentViewData.withdrawals}名`} subValue={currentViewData.periodLabel} yoy={calcYoY(currentViewData.withdrawals, currentViewData.prevWithdrawals)} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_28d76d55-88ab-48e9-b098-dc838ba040c2.svg" colorClass="text-rose-500" />
+                                        <StatCard title="在籍生徒数" value={`${currentViewData.totalStudents}名`} subValue="期間末" iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_cd586213-916c-4b50-b0c3-deb64e7fdd8a.svg" colorClass="text-brand-blue" />
                                     </div>
-                                    
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-96">
                                             <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 収支サマリー ({viewLabel})</h3>
@@ -1182,9 +1436,7 @@
                                                         <YAxis dataKey="name" type="category" width={80} />
                                                         <Tooltip formatter={(value)=>formatYen(value)} />
                                                         <Bar dataKey="value" name="金額" radius={[0, 4, 4, 0]}>
-                                                            {monthlySummaryData.map((entry, index) => (
-                                                                <Cell key={`cell-${index}`} fill={entry.fill} />
-                                                            ))}
+                                                            {monthlySummaryData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
                                                         </Bar>
                                                     </BarChart>
                                                 ) : (
@@ -1201,7 +1453,6 @@
                                                 )}
                                             </ResponsiveContainer>
                                         </div>
-                                        
                                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-96">
                                             <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><Users className="w-5 h-5 mr-2 text-brand-orange"/> 生徒数推移 (増減要因)</h3>
                                             <ResponsiveContainer width="100%" height="90%">
@@ -1223,51 +1474,15 @@
                                     </div>
                                 </div>
                             )}
-
-                            {/* PL (Detail) View - StatCard Update with Custom Icon URLs */}
                             {activeTab === 'pl' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                                        <StatCard 
-                                            title="売上" 
-                                            value={formatYen(currentViewData.revenue)} 
-                                            subValue={currentViewData.periodLabel} 
-                                            yoy={calcYoY(currentViewData.revenue, currentViewData.prevRevenue)}
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg" 
-                                            colorClass="text-brand-blue" 
-                                        />
-                                        <StatCard 
-                                            title="費用" 
-                                            value={formatYen(currentViewData.expense)} 
-                                            subValue={currentViewData.periodLabel} 
-                                            yoy={calcYoY(currentViewData.expense, currentViewData.prevExpense)}
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_72e22ba6-81fa-4b3e-abf5-23d886ad1dea.svg" 
-                                            colorClass="text-rose-500" 
-                                        />
-                                        <StatCard 
-                                            title="営業利益" 
-                                            value={formatYen(currentViewData.profit)} 
-                                            subValue={currentViewData.periodLabel} 
-                                            yoy={calcYoY(currentViewData.profit, currentViewData.prevProfit)}
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_33bb072f-fe8f-4a20-8e5a-0bc5f53bde3d.svg" 
-                                            colorClass="text-emerald-500" 
-                                        />
-                                        <StatCard 
-                                            title="アルバイト人件費率" 
-                                            value={`${currentViewData.revenue > 0 ? (currentViewData.partTime / currentViewData.revenue * 100).toFixed(1) : 0}%`} 
-                                            subValue="売上比" 
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_f93e0546-f8d7-464b-b008-882ad339027e.svg" 
-                                            colorClass="text-rose-500" 
-                                        />
-                                        <StatCard 
-                                            title="利益率" 
-                                            value={`${currentViewData.revenue ? ((currentViewData.profit/currentViewData.revenue)*100).toFixed(1) : 0}%`} 
-                                            subValue="売上対比" 
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_d71099f5-a933-4295-9991-75c16e130f81.svg" 
-                                            colorClass="text-brand-orange" 
-                                        />
+                                        <StatCard title="売上" value={formatYen(currentViewData.revenue)} subValue={currentViewData.periodLabel} yoy={calcYoY(currentViewData.revenue, currentViewData.prevRevenue)} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_1eb00716-6ac0-4be4-9b78-e8e9be44198e.svg" colorClass="text-brand-blue" />
+                                        <StatCard title="費用" value={formatYen(currentViewData.expense)} subValue={currentViewData.periodLabel} yoy={calcYoY(currentViewData.expense, currentViewData.prevExpense)} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_72e22ba6-81fa-4b3e-abf5-23d886ad1dea.svg" colorClass="text-rose-500" />
+                                        <StatCard title="営業利益" value={formatYen(currentViewData.profit)} subValue={currentViewData.periodLabel} yoy={calcYoY(currentViewData.profit, currentViewData.prevProfit)} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_33bb072f-fe8f-4a20-8e5a-0bc5f53bde3d.svg" colorClass="text-emerald-500" />
+                                        <StatCard title="アルバイト人件費率" value={`${currentViewData.revenue > 0 ? (currentViewData.partTime / currentViewData.revenue * 100).toFixed(1) : 0}%`} subValue="売上比" iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_f93e0546-f8d7-464b-b008-882ad339027e.svg" colorClass="text-rose-500" />
+                                        <StatCard title="利益率" value={`${currentViewData.revenue ? ((currentViewData.profit/currentViewData.revenue)*100).toFixed(1) : 0}%`} subValue="売上対比" iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_d71099f5-a933-4295-9991-75c16e130f81.svg" colorClass="text-brand-orange" />
                                     </div>
-                                    
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
                                         <div className="flex justify-between items-center mb-6">
                                             <h3 className="text-lg font-bold text-gray-800 flex items-center"><DollarSign className="w-5 h-5 mr-2 text-brand-blue"/> 詳細収支推移 ({viewLabel})</h3>
@@ -1360,33 +1575,12 @@
                                 </div>
                             )}
                             
-                            {/* Students View - StatCard Update with Custom Icon URLs */}
                             {activeTab === 'students' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                        <StatCard 
-                                            title="期間内増加" 
-                                            value={`${totals.newEnrollments + totals.transferIns}名`} 
-                                            subValue="入会+転入" 
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_d71099f5-a933-4295-9991-75c16e130f81.svg" 
-                                            colorClass="text-emerald-500" 
-                                            details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}]} 
-                                        />
-                                        <StatCard 
-                                            title="期間内減少" 
-                                            value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} 
-                                            subValue="退会+転校+卒業" 
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_c22e686d-38dc-4fb6-bcf8-dc71adcf9d99.svg" 
-                                            colorClass="text-rose-500" 
-                                            details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} 
-                                        />
-                                        <StatCard 
-                                            title="在籍生徒数" 
-                                            value={`${currentTotalStudents}名`} 
-                                            subValue={viewMode==='annual'?'年度末':'月末'} 
-                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_cd586213-916c-4b50-b0c3-deb64e7fdd8a.svg" 
-                                            colorClass="text-brand-blue" 
-                                        />
+                                        <StatCard title="期間内増加" value={`${totals.newEnrollments + totals.transferIns}名`} subValue="入会+転入" iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_d71099f5-a933-4295-9991-75c16e130f81.svg" colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}]} />
+                                        <StatCard title="期間内減少" value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} subValue="退会+転校+卒業" iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_c22e686d-38dc-4fb6-bcf8-dc71adcf9d99.svg" colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} />
+                                        <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末':'月末'} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_cd586213-916c-4b50-b0c3-deb64e7fdd8a.svg" colorClass="text-brand-blue" />
                                     </div>
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
                                         <h3 className="text-lg font-bold text-gray-800 mb-6">生徒数増減詳細</h3>
@@ -1440,7 +1634,6 @@
                                         <div className="flex-1"><label className="block text-sm font-bold text-gray-700 mb-2">校舎名</label><input type="text" value={newCampusName} onChange={e=>setNewCampusName(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-blue" placeholder="渋谷校"/></div>
                                         <button onClick={handleAddCampus} className="bg-brand-blue text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700">登録</button>
                                     </div>
-
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                         {campusList.map(c=>(
                                             <div key={c.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50 flex justify-between items-center">
