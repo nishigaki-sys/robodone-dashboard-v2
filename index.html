@@ -1,4 +1,62 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot School Dashboard V3</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            blue: '#1E51A2',
+                            orange: '#F3981E',
+                            white: '#FFFFFF',
+                            slate: '#F8FAFC'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "recharts": "https://esm.sh/recharts@2.12.7?external=react,react-dom",
+            "lucide-react": "https://esm.sh/lucide-react@0.395.0?external=react,react-dom",
+            "firebase/app": "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js"
+        }
+    }
+    </script>
+
+    <style>
+        body { font-family: "Helvetica Neue", Arial, sans-serif; background-color: #F8FAFC; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #1E51A2; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useMemo, useEffect, useRef } from "react";
         import { createRoot } from "react-dom/client";
         import { BarChart, Bar, AreaChart, Area, LineChart, Line, ComposedChart, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from "recharts";
         import { 
@@ -457,7 +515,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
             );
         };
 
-                                // ==========================================
+        // ==========================================
         // 4. School Console Component (DEFINED BEFORE APP)
         // ==========================================
         function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
@@ -722,140 +780,8 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
             );
         }
 
-        // ==========================================
-        // 5. App Component (DEFINED AFTER SchoolConsole)
-        // ==========================================
-        function App() {
-            const [consoleMode, setConsoleMode] = useState('select'); 
-            const [selectedCampusId, setSelectedCampusId] = useState(null);
-            const [campusList, setCampusList] = useState([]);
-            const [selectedYear, setSelectedYear] = useState(() => { const d = new Date(); return d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear(); });
-            const [notification, setNotification] = useState(null);
-            const [isSyncing, setIsSyncing] = useState(false);
-            const [lastUpdated, setLastUpdated] = useState(null);
-            const [isUsingCache, setIsUsingCache] = useState(false);
-            const [allData, setAllData] = useState({ enrollments: [], statusChanges: [], transfers: [], dailyReports: [], financials: [], trialApps: [], financialUpdates: [] });
-
-            const showNotify = (msg, type='success') => {
-                setNotification({ msg, type });
-                setTimeout(() => setNotification(null), 3000);
-            };
-
-            const loadFromCache = () => {
-                try {
-                    const cCamp = localStorage.getItem(CACHE_KEYS.CAMPUSES);
-                    const cData = localStorage.getItem(CACHE_KEYS.ALL_DATA);
-                    const cTime = localStorage.getItem(CACHE_KEYS.LAST_UPDATED);
-                    if (cCamp && cData) {
-                        setCampusList(JSON.parse(cCamp));
-                        setAllData(JSON.parse(cData));
-                        if (cTime) setLastUpdated(new Date(cTime));
-                        setIsUsingCache(true);
-                        return true;
-                    }
-                } catch (e) { console.error(e); }
-                return false;
-            };
-
-            const fetchData = async (forceUpdate = false) => {
-                if (!isFirebaseInitialized) return;
-                if (!forceUpdate && loadFromCache()) return;
-                setIsSyncing(true);
-                try {
-                    const [campuses, enroll, status, trans, reports, finance, trials, finUpdates] = await Promise.all([
-                        getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
-                        getDocs(collection(db, "enrollments")),
-                        getDocs(collection(db, "status_changes")),
-                        getDocs(collection(db, "transfers")),
-                        getDocs(collection(db, "daily_reports")),
-                        getDocs(collection(db, "financials")),
-                        getDocs(collection(db, "trial_applications")),
-                        getDocs(collection(db, "financial_updates"))
-                    ]);
-                    const cList = campuses.docs.map(d => ({ id: d.id, ...d.data() }));
-                    const aData = {
-                        enrollments: enroll.docs.map(d => ({id:d.id, ...d.data()})),
-                        statusChanges: status.docs.map(d => ({id:d.id, ...d.data()})),
-                        transfers: trans.docs.map(d => ({id:d.id, ...d.data()})),
-                        dailyReports: reports.docs.map(d => ({id:d.id, ...d.data()})),
-                        financials: finance.docs.map(d => ({id:d.id, ...d.data()})),
-                        trialApps: trials.docs.map(d => ({id:d.id, ...d.data()})),
-                        financialUpdates: finUpdates.docs.map(d => ({id:d.id, ...d.data()}))
-                    };
-                    setCampusList(cList);
-                    setAllData(aData);
-                    localStorage.setItem(CACHE_KEYS.CAMPUSES, JSON.stringify(cList));
-                    localStorage.setItem(CACHE_KEYS.ALL_DATA, JSON.stringify(aData));
-                    const now = new Date();
-                    localStorage.setItem(CACHE_KEYS.LAST_UPDATED, now.toISOString());
-                    setLastUpdated(now);
-                    setIsUsingCache(false);
-                    if (forceUpdate) showNotify("データを更新しました");
-                } catch (e) { console.error(e); showNotify("データ取得エラー", 'error'); } finally { setIsSyncing(false); }
-            };
-
-            useEffect(() => { fetchData(); }, []);
-            const handleRefresh = () => fetchData(true);
-            const handleEnterHQ = () => setConsoleMode('hq');
-            const handleEnterSchool = (id) => { setSelectedCampusId(id); setConsoleMode('school'); };
-            const handleBack = () => { setConsoleMode('select'); setSelectedCampusId(null); };
-
-            return (
-                <>
-                    <Notification msg={notification?.msg} type={notification?.type} onClose={()=>setNotification(null)} />
-                    {consoleMode === 'select' && (
-                        <div className="min-h-screen bg-brand-slate flex items-center justify-center p-6 fade-in">
-                            <div className="max-w-4xl w-full">
-                                <div className="text-center mb-12">
-                                    <h1 className="text-4xl font-bold text-brand-blue mb-4 tracking-tight">Robot School Dashboard V3</h1>
-                                    <p className="text-gray-500">管理コンソールを選択してください</p>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    <div onClick={handleEnterHQ} className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-xl hover:border-brand-blue/30 transition-all group relative overflow-hidden">
-                                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-blue/5 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
-                                        <div className="relative z-10">
-                                            <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-blue/20">
-                                                <LayoutDashboard className="w-8 h-8 text-white" />
-                                            </div>
-                                            <h2 className="text-2xl font-bold text-gray-800 mb-2">本部コンソール</h2>
-                                            <p className="text-sm text-gray-500 mb-6">全校データの閲覧・管理</p>
-                                            <span className="inline-flex items-center text-brand-blue font-bold text-sm group-hover:translate-x-1 transition-transform">ログイン <ArrowRight className="ml-2 w-4 h-4" /></span>
-                                        </div>
-                                    </div>
-                                    <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
-                                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-orange/5 rounded-bl-full -mr-8 -mt-8"></div>
-                                        <div className="relative z-10">
-                                            <div className="w-16 h-16 bg-brand-orange rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-orange/20">
-                                                <School className="w-8 h-8 text-white" />
-                                            </div>
-                                            <h2 className="text-2xl font-bold text-gray-800 mb-2">校舎コンソール</h2>
-                                            <p className="text-sm text-gray-500 mb-6">日報・計画・収支入力</p>
-                                            <div className="mt-4 space-y-2 max-h-48 overflow-y-auto pr-2">
-                                                {campusList.map(c => (
-                                                    <button key={c.id} onClick={() => handleEnterSchool(c.id)} className="w-full text-left px-4 py-3 rounded-lg border border-gray-100 hover:border-brand-orange hover:bg-orange-50 transition-colors flex items-center justify-between group">
-                                                        <span className="font-bold text-gray-700 group-hover:text-brand-orange">{c.name}</span>
-                                                        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-orange" />
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="mt-8 text-center text-xs text-gray-400 flex items-center justify-center gap-4">
-                                    <span className="flex items-center gap-1"><Database className={`w-3 h-3 ${isFirebaseInitialized ? 'text-emerald-500' : 'text-gray-400'}`} /> {isUsingCache ? 'Cache Mode' : 'Online Mode'}</span>
-                                    <span>更新: {lastUpdated ? lastUpdated.toLocaleTimeString() : '-'}</span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    {consoleMode === 'hq' && <HQConsole onBack={handleBack} campusList={campusList} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={handleRefresh} showNotify={showNotify} isSyncing={isSyncing} lastUpdated={lastUpdated} isUsingCache={isUsingCache} />}
-                    {consoleMode === 'school' && <SchoolConsole onBack={handleBack} campus={campusList.find(c=>c.id===selectedCampusId)} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={handleRefresh} showNotify={showNotify} isSyncing={isSyncing} lastUpdated={lastUpdated} isUsingCache={isUsingCache} />}
-                </>
-            );
-        }
-
-        // ==========================================
-        // 6. HQ Console Component
+           // ==========================================
+        // 5. HQ Console Component (DEFINED BEFORE APP)
         // ==========================================
         function HQConsole({ onBack, campusList, allData, selectedYear, setSelectedYear, refreshData, showNotify, isSyncing, lastUpdated, isUsingCache }) {
             const [activeTab, setActiveTab] = useState('dashboard');
@@ -888,8 +814,10 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
             const displayData = useMemo(() => {
                 if (viewMode === 'annual') return fullDashboardData;
                 if (viewMode === 'half' || viewMode === 'quarter') return aggregatePeriod(fullDashboardData, viewMode);
+                
                 const targetMonthData = fullDashboardData.find(m => m.name === selectedMonth);
                 if (!targetMonthData) return [];
+
                 if (viewMode === 'weekly') return targetMonthData.weekly || [];
                 return targetMonthData.daily;
             }, [fullDashboardData, viewMode, selectedMonth]);
@@ -1255,9 +1183,29 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
                             {activeTab === 'students' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                        <StatCard title="期間内増加" value={`${totals.newEnrollments + totals.transferIns}名`} subValue="入会+転入" iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_d71099f5-a933-4295-9991-75c16e130f81.svg" colorClass="text-emerald-500" details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}]} />
-                                        <StatCard title="期間内減少" value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} subValue="退会+転校+卒業" iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_c22e686d-38dc-4fb6-bcf8-dc71adcf9d99.svg" colorClass="text-rose-500" details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} />
-                                        <StatCard title="在籍生徒数" value={`${currentTotalStudents}名`} subValue={viewMode==='annual'?'年度末':'月末'} iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_cd586213-916c-4b50-b0c3-deb64e7fdd8a.svg" colorClass="text-brand-blue" />
+                                        <StatCard 
+                                            title="期間内増加" 
+                                            value={`${totals.newEnrollments + totals.transferIns}名`} 
+                                            subValue="入会+転入" 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_d71099f5-a933-4295-9991-75c16e130f81.svg" 
+                                            colorClass="text-emerald-500" 
+                                            details={[{label:'入会', value:totals.newEnrollments}, {label:'転入', value:totals.transferIns}]} 
+                                        />
+                                        <StatCard 
+                                            title="期間内減少" 
+                                            value={`${totals.withdrawals + Math.abs(totals.transfers) + Math.abs(totals.graduates)}名`} 
+                                            subValue="退会+転校+卒業" 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_c22e686d-38dc-4fb6-bcf8-dc71adcf9d99.svg" 
+                                            colorClass="text-rose-500" 
+                                            details={[{label:'退会', value:totals.withdrawals}, {label:'転校', value:Math.abs(totals.transfers)}, {label:'卒業', value:Math.abs(totals.graduates)}]} 
+                                        />
+                                        <StatCard 
+                                            title="在籍生徒数" 
+                                            value={`${currentTotalStudents}名`} 
+                                            subValue={viewMode==='annual'?'年度末':'月末'} 
+                                            iconUrl="https://storage.googleapis.com/studio-design-asset-files/projects/nBW2jZ2ZWv/s-150x150_cd586213-916c-4b50-b0c3-deb64e7fdd8a.svg" 
+                                            colorClass="text-brand-blue" 
+                                        />
                                     </div>
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[500px]">
                                         <h3 className="text-lg font-bold text-gray-800 mb-6">生徒数増減詳細</h3>
@@ -1331,8 +1279,140 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
             );
         }
 
+        // ==========================================
+        // 6. App Component (DEFINED AFTER HQConsole & SchoolConsole)
+        // ==========================================
+        function App() {
+            const [consoleMode, setConsoleMode] = useState('select'); 
+            const [selectedCampusId, setSelectedCampusId] = useState(null);
+            const [campusList, setCampusList] = useState([]);
+            const [selectedYear, setSelectedYear] = useState(() => { const d = new Date(); return d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear(); });
+            const [notification, setNotification] = useState(null);
+            const [isSyncing, setIsSyncing] = useState(false);
+            const [lastUpdated, setLastUpdated] = useState(null);
+            const [isUsingCache, setIsUsingCache] = useState(false);
+            const [allData, setAllData] = useState({ enrollments: [], statusChanges: [], transfers: [], dailyReports: [], financials: [], trialApps: [], financialUpdates: [] });
+
+            const showNotify = (msg, type='success') => {
+                setNotification({ msg, type });
+                setTimeout(() => setNotification(null), 3000);
+            };
+
+            const loadFromCache = () => {
+                try {
+                    const cCamp = localStorage.getItem(CACHE_KEYS.CAMPUSES);
+                    const cData = localStorage.getItem(CACHE_KEYS.ALL_DATA);
+                    const cTime = localStorage.getItem(CACHE_KEYS.LAST_UPDATED);
+                    if (cCamp && cData) {
+                        setCampusList(JSON.parse(cCamp));
+                        setAllData(JSON.parse(cData));
+                        if (cTime) setLastUpdated(new Date(cTime));
+                        setIsUsingCache(true);
+                        return true;
+                    }
+                } catch (e) { console.error(e); }
+                return false;
+            };
+
+            const fetchData = async (forceUpdate = false) => {
+                if (!isFirebaseInitialized) return;
+                if (!forceUpdate && loadFromCache()) return;
+                setIsSyncing(true);
+                try {
+                    const [campuses, enroll, status, trans, reports, finance, trials, finUpdates] = await Promise.all([
+                        getDocs(query(collection(db, "campuses"), orderBy("createdAt"))),
+                        getDocs(collection(db, "enrollments")),
+                        getDocs(collection(db, "status_changes")),
+                        getDocs(collection(db, "transfers")),
+                        getDocs(collection(db, "daily_reports")),
+                        getDocs(collection(db, "financials")),
+                        getDocs(collection(db, "trial_applications")),
+                        getDocs(collection(db, "financial_updates"))
+                    ]);
+                    const cList = campuses.docs.map(d => ({ id: d.id, ...d.data() }));
+                    const aData = {
+                        enrollments: enroll.docs.map(d => ({id:d.id, ...d.data()})),
+                        statusChanges: status.docs.map(d => ({id:d.id, ...d.data()})),
+                        transfers: trans.docs.map(d => ({id:d.id, ...d.data()})),
+                        dailyReports: reports.docs.map(d => ({id:d.id, ...d.data()})),
+                        financials: finance.docs.map(d => ({id:d.id, ...d.data()})),
+                        trialApps: trials.docs.map(d => ({id:d.id, ...d.data()})),
+                        financialUpdates: finUpdates.docs.map(d => ({id:d.id, ...d.data()}))
+                    };
+                    setCampusList(cList);
+                    setAllData(aData);
+                    localStorage.setItem(CACHE_KEYS.CAMPUSES, JSON.stringify(cList));
+                    localStorage.setItem(CACHE_KEYS.ALL_DATA, JSON.stringify(aData));
+                    const now = new Date();
+                    localStorage.setItem(CACHE_KEYS.LAST_UPDATED, now.toISOString());
+                    setLastUpdated(now);
+                    setIsUsingCache(false);
+                    if (forceUpdate) showNotify("データを更新しました");
+                } catch (e) { console.error(e); showNotify("データ取得エラー", 'error'); } finally { setIsSyncing(false); }
+            };
+
+            useEffect(() => { fetchData(); }, []);
+            const handleRefresh = () => fetchData(true);
+            const handleEnterHQ = () => setConsoleMode('hq');
+            const handleEnterSchool = (id) => { setSelectedCampusId(id); setConsoleMode('school'); };
+            const handleBack = () => { setConsoleMode('select'); setSelectedCampusId(null); };
+
+            return (
+                <>
+                    <Notification msg={notification?.msg} type={notification?.type} onClose={()=>setNotification(null)} />
+                    {consoleMode === 'select' && (
+                        <div className="min-h-screen bg-brand-slate flex items-center justify-center p-6 fade-in">
+                            <div className="max-w-4xl w-full">
+                                <div className="text-center mb-12">
+                                    <h1 className="text-4xl font-bold text-brand-blue mb-4 tracking-tight">Robot School Dashboard V3</h1>
+                                    <p className="text-gray-500">管理コンソールを選択してください</p>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div onClick={handleEnterHQ} className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-xl hover:border-brand-blue/30 transition-all group relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-blue/5 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
+                                        <div className="relative z-10">
+                                            <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-blue/20">
+                                                <LayoutDashboard className="w-8 h-8 text-white" />
+                                            </div>
+                                            <h2 className="text-2xl font-bold text-gray-800 mb-2">本部コンソール</h2>
+                                            <p className="text-sm text-gray-500 mb-6">全校データの閲覧・管理</p>
+                                            <span className="inline-flex items-center text-brand-blue font-bold text-sm group-hover:translate-x-1 transition-transform">ログイン <ArrowRight className="ml-2 w-4 h-4" /></span>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-orange/5 rounded-bl-full -mr-8 -mt-8"></div>
+                                        <div className="relative z-10">
+                                            <div className="w-16 h-16 bg-brand-orange rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-orange/20">
+                                                <School className="w-8 h-8 text-white" />
+                                            </div>
+                                            <h2 className="text-2xl font-bold text-gray-800 mb-2">校舎コンソール</h2>
+                                            <p className="text-sm text-gray-500 mb-6">日報・計画・収支入力</p>
+                                            <div className="mt-4 space-y-2 max-h-48 overflow-y-auto pr-2">
+                                                {campusList.map(c => (
+                                                    <button key={c.id} onClick={() => handleEnterSchool(c.id)} className="w-full text-left px-4 py-3 rounded-lg border border-gray-100 hover:border-brand-orange hover:bg-orange-50 transition-colors flex items-center justify-between group">
+                                                        <span className="font-bold text-gray-700 group-hover:text-brand-orange">{c.name}</span>
+                                                        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-orange" />
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="mt-8 text-center text-xs text-gray-400 flex items-center justify-center gap-4">
+                                    <span className="flex items-center gap-1"><Database className={`w-3 h-3 ${isFirebaseInitialized ? 'text-emerald-500' : 'text-gray-400'}`} /> {isUsingCache ? 'Cache Mode' : 'Online Mode'}</span>
+                                    <span>更新: {lastUpdated ? lastUpdated.toLocaleTimeString() : '-'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {consoleMode === 'hq' && <HQConsole onBack={handleBack} campusList={campusList} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={handleRefresh} showNotify={showNotify} isSyncing={isSyncing} lastUpdated={lastUpdated} isUsingCache={isUsingCache} />}
+                    {consoleMode === 'school' && <SchoolConsole onBack={handleBack} campus={campusList.find(c=>c.id===selectedCampusId)} allData={allData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} refreshData={handleRefresh} showNotify={showNotify} isSyncing={isSyncing} lastUpdated={lastUpdated} isUsingCache={isUsingCache} />}
+                </>
+            );
+        }
+
         const root = createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
 </body>
-</html>
+</html> 
