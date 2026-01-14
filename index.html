@@ -150,6 +150,9 @@
         
         const normalizeString = (str) => (!str ? "" : str.replace(/[\s\u3000]/g, "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)));
 
+        // 修正: 週次集計ロジック
+        // 原則: 月曜始まり～日曜終わり
+        // 例外: 月初(1日)が日曜の場合のみ、その日を第1週に含める（1日～8日を第1週とする）
         const getWeeksStruct = (fiscalYear, monthIndex) => {
             let targetYear = fiscalYear;
             let jsMonth = monthIndex + 3; 
@@ -160,10 +163,24 @@
             const daysInMonth = new Date(targetYear, jsMonth + 1, 0).getDate();
             const weeks = [];
             let startDay = 1;
+
+            // 月初が日曜日か判定
+            const firstDayObj = new Date(targetYear, jsMonth, 1);
+            const isFirstDaySunday = firstDayObj.getDay() === 0;
+
             for (let day = 1; day <= daysInMonth; day++) {
                 const dateObj = new Date(targetYear, jsMonth, day);
                 const dayOfWeek = dateObj.getDay(); 
+                
+                // 週末判定: 日曜日(0) または 月末
                 let isWeekEnd = (dayOfWeek === 0) || (day === daysInMonth);
+
+                // 特例: 月初が日曜(1日)の場合、1日時点では週末とみなさない（翌週の日曜まで伸ばす）
+                // ただし月が1日しかない場合は強制的に週末
+                if (isFirstDaySunday && day === 1 && daysInMonth > 1) {
+                    isWeekEnd = false;
+                }
+
                 if (isWeekEnd) {
                     weeks.push({
                         name: `第${weeks.length + 1}週`,
@@ -340,6 +357,7 @@
                     };
                 });
 
+                // 週次データの集計ロジック
                 const weeklyData = weeks.map(week => {
                     const daysInWeek = dailyData.slice(week.startDay - 1, week.endDay);
                     const sum = (key) => daysInWeek.reduce((acc, d) => acc + (d[key] || 0), 0);
@@ -399,6 +417,7 @@
                     prevWithdrawals: prevWithdrawals,
                     
                     daily: dailyData,
+                    weekly: weeklyData // 修正: 戻り値に週次データを含める
                 };
             });
 
@@ -639,7 +658,7 @@
             const [selectedCampusId, setSelectedCampusId] = useState(null);
             const [campusList, setCampusList] = useState([]);
             
-            // 修正: 現在日付から初期年度を自動判定 (1-3月なら前年が年度)
+            // 現在日付から初期年度を自動判定 (1-3月なら前年が年度)
             const [selectedYear, setSelectedYear] = useState(() => {
                 const d = new Date();
                 return d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear();
@@ -807,8 +826,16 @@
             const displayData = useMemo(() => {
                 if (viewMode === 'annual') return fullDashboardData;
                 if (viewMode === 'half' || viewMode === 'quarter') return aggregatePeriod(fullDashboardData, viewMode);
+                
                 const targetMonthData = fullDashboardData.find(m => m.name === selectedMonth);
-                return targetMonthData ? targetMonthData.daily : [];
+                if (!targetMonthData) return [];
+
+                // 修正: viewModeがweeklyの場合は、weeklyデータを返す
+                if (viewMode === 'weekly') {
+                    return targetMonthData.weekly || [];
+                }
+
+                return targetMonthData.daily;
             }, [fullDashboardData, viewMode, selectedMonth]);
 
             const monthDataForPL = useMemo(() => {
@@ -1447,7 +1474,7 @@
         function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
             const [activeTab, setActiveTab] = useState('daily');
             
-            // 修正: 初期表示時に現在の月を選択状態にする
+            // 現在の月を初期値に
             const [selectedMonth, setSelectedMonth] = useState(() => {
                 const d = new Date();
                 return (d.getMonth() + 1) + '月';
@@ -1581,7 +1608,7 @@
             if (!campus) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-brand-blue"/></div>;
             const weatherMap = { sunny: {i:Sun,l:'晴',c:'text-orange-500'}, cloudy: {i:Cloud,l:'曇',c:'text-gray-500'}, rainy: {i:CloudRain,l:'雨',c:'text-blue-500'}, snowy: {i:Snowflake,l:'雪',c:'text-cyan-500'}, closed: {i:Ban,l:'休',c:'text-red-500'} };
 
-            // 修正: 選択月が1,2,3月の場合は、年表示を年度+1にする
+            // 選択月が1,2,3月の場合は、年表示を年度+1にする
             const isJanFebMar = ['1月', '2月', '3月'].includes(selectedMonth);
             const displayCalendarYear = isJanFebMar ? Number(selectedYear) + 1 : Number(selectedYear);
 
@@ -1647,7 +1674,6 @@
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in">
                                     <div className="lg:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                                         <div className="flex justify-between mb-4">
-                                            {/* 修正: 年またぎを考慮したカレンダーヘッダー表示 */}
                                             <h3 className="font-bold text-gray-700 flex items-center"><Calendar className="w-4 h-4 mr-2"/> {displayCalendarYear}年 {selectedMonth}</h3>
                                             <div className="flex gap-1">{MONTHS_LIST.map(m=><button key={m} onClick={()=>setSelectedMonth(m)} className={`text-xs px-2 py-1 rounded ${selectedMonth===m?'bg-brand-orange text-white':'text-gray-400 hover:bg-gray-100'}`}>{m}</button>)}</div>
                                         </div>
