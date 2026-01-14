@@ -286,7 +286,6 @@
                 const currentFin = aggFinancials(mFinancials);
                 const prevFin = aggFinancials(mFinancialsPrev);
 
-                // --- 前年の入退会数の集計 ---
                 const filterPrevMonth = (list, typeFilter=null, dateKey='date') => list.filter(item => {
                     if (!isTargetCampus(item)) return false;
                     let d = parseDate(item[dateKey]);
@@ -299,7 +298,6 @@
 
                 const prevNewEnrollments = filterPrevMonth(enrollments);
                 const prevWithdrawals = filterPrevMonth(statusChanges, "退会");
-                // --------------------------
 
                 const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
                     const day = i + 1;
@@ -397,7 +395,6 @@
                     prevHq: prevFin.hq,
                     prevOther: prevFin.other,
                     
-                    // 前年の入退会数
                     prevNewEnrollments: prevNewEnrollments,
                     prevWithdrawals: prevWithdrawals,
                     
@@ -433,7 +430,6 @@
                         'revenue','expense','profit','ad','sales','labor','facility','admin','hq','other','partTime',
                         'newEnrollments','transferIns','returns','withdrawals','graduates_neg','transfers_neg','recesses_neg','flyers','trialApp','eventApp','trialExec','eventExec',
                         'withdrawals_neg', 'transfers_neg', 'graduates_neg', 'recesses_neg',
-                        // 前年集計キーを追加
                         'prevRevenue', 'prevExpense', 'prevProfit', 'prevAd', 'prevSales', 'prevLabor', 'prevFacility', 'prevAdmin', 'prevHq', 'prevOther',
                         'prevNewEnrollments', 'prevWithdrawals'
                     ];
@@ -456,7 +452,6 @@
                 
                 if (targets.length > 0) {
                     agg.students = targets[targets.length - 1].students;
-                    // 生徒数（在庫）の前年はフロー集計できないため、ここでは割愛（またはロジック追加が必要）
                 }
                 
                 Object.keys(agg.detailItems).forEach(k => agg.detailItems[k].sort((a,b) => b.value - a.value));
@@ -490,7 +485,6 @@
                         )}
                     </div>
                     <h3 className="text-2xl font-bold text-gray-800 group-hover:text-brand-blue transition-colors">{value}</h3>
-                    {/* 前年比表示の追加 */}
                     {yoy && (
                         <div className="flex items-center mt-1 gap-1">
                              <span className="text-xs font-medium text-gray-400">前年比</span>
@@ -644,7 +638,13 @@
             const [consoleMode, setConsoleMode] = useState('select'); 
             const [selectedCampusId, setSelectedCampusId] = useState(null);
             const [campusList, setCampusList] = useState([]);
-            const [selectedYear, setSelectedYear] = useState(2025); 
+            
+            // 修正: 現在日付から初期年度を自動判定 (1-3月なら前年が年度)
+            const [selectedYear, setSelectedYear] = useState(() => {
+                const d = new Date();
+                return d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear();
+            });
+
             const [notification, setNotification] = useState(null);
             const [isSyncing, setIsSyncing] = useState(false);
             const [lastUpdated, setLastUpdated] = useState(null);
@@ -1099,7 +1099,7 @@
                             </div>
                         </header>
                         <div className="p-8 max-w-7xl mx-auto">
-                            {/* Dashboard (Summary) View - StatCard Update with Custom Icon URLs */}
+                            {/* Dashboard (Summary) View - StatCard Update with Custom Icon URLs & YoY */}
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-8 animate-in fade-in">
                                     <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
@@ -1446,7 +1446,13 @@
         // ==========================================
         function SchoolConsole({ onBack, campus, allData, selectedYear, setSelectedYear, refreshData, showNotify }) {
             const [activeTab, setActiveTab] = useState('daily');
-            const [selectedMonth, setSelectedMonth] = useState('4月');
+            
+            // 修正: 初期表示時に現在の月を選択状態にする
+            const [selectedMonth, setSelectedMonth] = useState(() => {
+                const d = new Date();
+                return (d.getMonth() + 1) + '月';
+            });
+
             const [reportDate, setReportDate] = useState(formatDateStr(new Date()));
             const [inputData, setInputData] = useState({ weather: 'sunny', flyers: 0, touch: 0, trial: 0 });
             const [uploading, setUploading] = useState(false);
@@ -1575,6 +1581,10 @@
             if (!campus) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-brand-blue"/></div>;
             const weatherMap = { sunny: {i:Sun,l:'晴',c:'text-orange-500'}, cloudy: {i:Cloud,l:'曇',c:'text-gray-500'}, rainy: {i:CloudRain,l:'雨',c:'text-blue-500'}, snowy: {i:Snowflake,l:'雪',c:'text-cyan-500'}, closed: {i:Ban,l:'休',c:'text-red-500'} };
 
+            // 修正: 選択月が1,2,3月の場合は、年表示を年度+1にする
+            const isJanFebMar = ['1月', '2月', '3月'].includes(selectedMonth);
+            const displayCalendarYear = isJanFebMar ? Number(selectedYear) + 1 : Number(selectedYear);
+
             return (
                 <div className="flex h-screen bg-brand-slate overflow-hidden fade-in">
                     {/* Daily Report Input Modal */}
@@ -1637,7 +1647,8 @@
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in">
                                     <div className="lg:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                                         <div className="flex justify-between mb-4">
-                                            <h3 className="font-bold text-gray-700 flex items-center"><Calendar className="w-4 h-4 mr-2"/> {selectedYear}年 {selectedMonth}</h3>
+                                            {/* 修正: 年またぎを考慮したカレンダーヘッダー表示 */}
+                                            <h3 className="font-bold text-gray-700 flex items-center"><Calendar className="w-4 h-4 mr-2"/> {displayCalendarYear}年 {selectedMonth}</h3>
                                             <div className="flex gap-1">{MONTHS_LIST.map(m=><button key={m} onClick={()=>setSelectedMonth(m)} className={`text-xs px-2 py-1 rounded ${selectedMonth===m?'bg-brand-orange text-white':'text-gray-400 hover:bg-gray-100'}`}>{m}</button>)}</div>
                                         </div>
                                         <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
